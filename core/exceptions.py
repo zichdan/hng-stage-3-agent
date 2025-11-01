@@ -16,22 +16,21 @@ def custom_exception_handler(exc, context):
     # First, get the standard error response provided by DRF
     response = exception_handler(exc, context)
 
-
-    # Log the full exception for debugging purposes
-    logger.error(f"An exception occurred: {exc}", exc_info=True)
+    # Log the full, detailed exception for debugging purposes
+    logger.error(f"An unhandled exception occurred: {exc}", exc_info=True)
 
     if response is not None:
-        # If DRF handled the exception, we re-format the response
+        # If DRF handled the exception, we re-format the response payload
         error_payload = {
             "error": "An error occurred",
             "details": response.data,
             "status_code": response.status_code
         }
-        # Use a more descriptive error message for common exceptions
+        # Provide more user-friendly messages for common HTTP errors
         if response.status_code == status.HTTP_404_NOT_FOUND:
             error_payload["error"] = "Resource Not Found"
         elif response.status_code == status.HTTP_400_BAD_REQUEST:
-            error_payload["error"] = "Invalid Request"
+            error_payload["error"] = "Invalid Request Parameters"
         elif response.status_code == status.HTTP_401_UNAUTHORIZED:
             error_payload["error"] = "Authentication Failed"
         
@@ -43,7 +42,7 @@ def custom_exception_handler(exc, context):
     return Response(
         {
             "error": "Internal Server Error",
-            "details": "An unexpected error occurred. Our team has been notified.",
+            "details": "An unexpected error occurred on our server. The technical team has been notified.",
             "status_code": status.HTTP_500_INTERNAL_SERVER_ERROR
         },
         status=status.HTTP_500_INTERNAL_SERVER_ERROR

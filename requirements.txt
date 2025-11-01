@@ -33,6 +33,6 @@ python-decouple     # For cleanly managing .env variables
 # --- Other Third Part-Packages  ---
 whitenoise
 django-cors-headers
-
+gunicorn
 
 

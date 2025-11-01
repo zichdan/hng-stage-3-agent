@@ -3,3 +3,7 @@ INFO 2025-11-01 18:03:53,956 autoreload [11680:13632] - Watching for file change
 INFO 2025-11-01 18:04:19,047 runserver [11680:4392] - [mHTTP GET / 200 [0.09, 127.0.0.1:57669][0m
 INFO 2025-11-01 18:06:17,029 autoreload [10892:12180] - Watching for file changes with StatReloader
 INFO 2025-11-01 18:15:45,720 autoreload [1404:772] - Watching for file changes with StatReloader
+INFO 2025-11-01 18:29:38,960 autoreload [1404:772] - C:\Users\S A M U E L\hng-stage-3-agent\core\settings.py changed, reloading.
+INFO 2025-11-01 18:29:42,321 autoreload [5132:11452] - Watching for file changes with StatReloader
+INFO 2025-11-01 18:29:48,826 autoreload [5132:11452] - C:\Users\S A M U E L\hng-stage-3-agent\core\settings.py changed, reloading.
+INFO 2025-11-01 18:29:53,337 autoreload [5952:10120] - Watching for file changes with StatReloader

@@ -172,6 +172,14 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'forex_agent.tasks.scheduled_knowledge_update',
         'schedule': crontab(minute='0', hour='*/2'),  # Runs at 00:00, 02:00, 04:00, etc.
     },
+    'scrape-and-process-knowledge-base-every-2-hours': {
+        'task': 'forex_agent.tasks.scrape_and_process_educational_content',
+        'schedule': crontab(minute='0', hour='*/2'),  # Every 2 hours, at the top of the hour
+    },
+    'fetch-and-process-market-news-every-2-hours': {
+        'task': 'forex_agent.tasks.fetch_and_process_market_news',
+        'schedule': crontab(minute='30', hour='*/2'), # Every 2 hours, offset by 30 mins
+    },
 }
 
 
