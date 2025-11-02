@@ -32,8 +32,7 @@ SECRET_KEY = env("SECRET_KEY", default='django-insecure-b*tuoe%^o+=^35$0fufrm=oa
 
 # SECURITY WARNING: don't run with debug turned on in production!
 # Get DEBUG from environment variable
-# DEBUG = env.bool("DEBUG", default=True) # Default to True for local, set to False in .env for production
-DEBUG = env.bool("DEBUG", default=False) # Default to False for production safety
+DEBUG = env.bool("DEBUG", default=True) # Default to True for local, set to False in .env for production
 
 # Site URL
 SITE_URL = env("SITE_URL", default="http://127.0.0.1:8000")
@@ -205,7 +204,7 @@ TEMPLATES = [
 
 
 # Internationalization
-# https://docs.djangoproject.com/en/5.2/topics/i18n/
+# https://docs.djangoproject.com/en/5.2/topics/i1n/
 
 LANGUAGE_CODE = 'en-us'
 
@@ -273,75 +272,56 @@ REST_FRAMEWORK = {
 
 
 # ==============================================================================
-# ROBUST LOGGING CONFIGURATION
+# ROBUST LOGGING CONFIGURATION (CONSOLE-ONLY)
 # ==============================================================================
-# This configuration follows the 12-factor app methodology for logging.
-# In production, logs are treated as a stream and sent to stdout.
-# The hosting platform (e.g., Leapcell) captures this stream for viewing and forwarding.
-# In development, logs are also sent to a local file for convenience.
-
-# Define the handlers to use based on the environment
-LOGGING_HANDLERS = ['console']
-if DEBUG:
-    LOGGING_HANDLERS.append('file')
-
+# This simplified configuration sends all logs to the console (stdout) for
+# both development and production. This is the industry standard for cloud
+# platforms like Leapcell, as they capture the stdout stream for logging.
+# It completely removes file-based logging to prevent filesystem errors.
 
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
         'verbose': {
-            'format': '{levelname} {asctime} {module} [{process:d}:{thread:d}] - {message}',
-            'style': '{',
-        },
-        'simple': {
-            'format': '[{asctime}] {levelname} {name}: {message}',
+            'format': '{levelname} {asctime} {name} {module} [{process:d}:{thread:d}] - {message}',
             'style': '{',
         },
     },
     'handlers': {
         'console': {
-            'level': 'DEBUG' if DEBUG else 'INFO', # More verbose in local dev
+            'level': 'DEBUG',  # Capture all log levels from DEBUG upwards.
             'class': 'logging.StreamHandler',
-            'formatter': 'simple',
-            'stream': sys.stdout, # Ensures logs go to the standard output stream
-        },
-        # This 'file' handler is only used in development (when DEBUG=True)
-        'file': {
-            'level': 'INFO',
-            'class': 'core.log_handlers.MakeDirRotatingFileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs', 'django.log'),
-            'maxBytes': 1024*1024*5, # 5 MB
-            'backupCount': 5,
-            'formatter': 'verbose',
-            'encoding': 'utf-8',
+            'formatter': 'verbose', # Use the more detailed formatter.
+            'stream': sys.stdout,
         },
     },
     'loggers': {
-        # Root logger
+        # Root logger: Catches logs from all other libraries.
+        # Set to INFO to reduce noise from third-party packages.
         '': {
             'handlers': ['console'],
             'level': 'INFO',
         },
-        # Django's own loggers
+        # Django's own loggers: Capture important framework messages.
         'django': {
-            'handlers': LOGGING_HANDLERS, # Use the dynamic handler list
-            'level': 'INFO',
-            'propagate': True,
+            'handlers': ['console'],
+            'level': 'INFO', # Use INFO for Django to avoid excessive noise.
+            'propagate': False,
         },
         'django.db.backends': {
             'handlers': ['console'],
-            'level': 'WARNING', # Quieter database logs unless there's an issue.
+            'level': 'WARNING', # Only show database logs if there's a problem.
             'propagate': False,
         },
-        # Our application's loggers
+        # Our application's loggers: Set to DEBUG to get all our messages.
         'forex_agent': {
-            'handlers': LOGGING_HANDLERS, # Use the dynamic handler list
+            'handlers': ['console'],
             'level': 'DEBUG', # Capture all our custom logs
             'propagate': False,
         },
         'a2a_protocol': {
-            'handlers': LOGGING_HANDLERS, # Use the dynamic handler list
+            'handlers': ['console'],
             'level': 'DEBUG',
             'propagate': False,
         },
