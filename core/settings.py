@@ -32,8 +32,8 @@ SECRET_KEY = env("SECRET_KEY", default='django-insecure-b*tuoe%^o+=^35$0fufrm=oa
 
 # SECURITY WARNING: don't run with debug turned on in production!
 # Get DEBUG from environment variable
-DEBUG = env.bool("DEBUG", default=True) # Default to True for local, set to False in .env for production
-
+# DEBUG = env.bool("DEBUG", default=True) # Default to True for local, set to False in .env for production
+DEBUG = env.bool("DEBUG", default=False) # Default to False for production safety
 
 # Site URL
 SITE_URL = env("SITE_URL", default="http://127.0.0.1:8000")

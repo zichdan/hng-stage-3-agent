@@ -32,3 +32,9 @@ INFO 2025-11-02 01:59:37,698 runserver [7856:15884] - [mHTTP POST /admin/login/
 INFO 2025-11-02 16:02:27,652 autoreload [4216:5568] - Watching for file changes with StatReloader
 INFO 2025-11-02 16:09:27,913 autoreload [4216:5568] - C:\Users\S A M U E L\hng-stage-3-agent\forex_agent\models.py changed, reloading.
 INFO 2025-11-02 16:09:32,041 autoreload [10168:6216] - Watching for file changes with StatReloader
+INFO 2025-11-02 16:28:47,560 autoreload [10168:6216] - C:\Users\S A M U E L\hng-stage-3-agent\core\settings.py changed, reloading.
+INFO 2025-11-02 16:28:51,365 autoreload [2040:7860] - Watching for file changes with StatReloader
+INFO 2025-11-02 16:29:00,218 autoreload [2040:7860] - C:\Users\S A M U E L\hng-stage-3-agent\core\settings.py changed, reloading.
+INFO 2025-11-02 16:29:03,798 autoreload [932:15448] - Watching for file changes with StatReloader
+INFO 2025-11-02 16:29:07,159 autoreload [932:15448] - C:\Users\S A M U E L\hng-stage-3-agent\core\settings.py changed, reloading.
+INFO 2025-11-02 16:29:11,206 autoreload [2496:15304] - Watching for file changes with StatReloader
