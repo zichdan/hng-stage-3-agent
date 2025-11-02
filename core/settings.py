@@ -275,9 +275,16 @@ REST_FRAMEWORK = {
 # ==============================================================================
 # ROBUST LOGGING CONFIGURATION
 # ==============================================================================
-# Define the logs directory and create it if it does not exist
-LOG_DIR = os.path.join(BASE_DIR, 'logs')
-os.makedirs(LOG_DIR, exist_ok=True)
+# This configuration follows the 12-factor app methodology for logging.
+# In production, logs are treated as a stream and sent to stdout.
+# The hosting platform (e.g., Leapcell) captures this stream for viewing and forwarding.
+# In development, logs are also sent to a local file for convenience.
+
+# Define the handlers to use based on the environment
+LOGGING_HANDLERS = ['console']
+if DEBUG:
+    LOGGING_HANDLERS.append('file')
+
 
 LOGGING = {
     'version': 1,
@@ -288,7 +295,7 @@ LOGGING = {
             'style': '{',
         },
         'simple': {
-            'format': '{levelname} {asctime} [{name}] - {message}',
+            'format': '[{asctime}] {levelname} {name}: {message}',
             'style': '{',
         },
     },
@@ -297,12 +304,11 @@ LOGGING = {
             'level': 'DEBUG' if DEBUG else 'INFO', # More verbose in local dev
             'class': 'logging.StreamHandler',
             'formatter': 'simple',
-            'stream': sys.stdout,
+            'stream': sys.stdout, # Ensures logs go to the standard output stream
         },
-        # Optional: Add a file handler for production logging
+        # This 'file' handler is only used in development (when DEBUG=True)
         'file': {
             'level': 'INFO',
-            # THIS IS THE ONLY LINE THAT IS CHANGED
             'class': 'core.log_handlers.MakeDirRotatingFileHandler',
             'filename': os.path.join(BASE_DIR, 'logs', 'django.log'),
             'maxBytes': 1024*1024*5, # 5 MB
@@ -310,7 +316,6 @@ LOGGING = {
             'formatter': 'verbose',
             'encoding': 'utf-8',
         },
-       
     },
     'loggers': {
         # Root logger
@@ -320,23 +325,23 @@ LOGGING = {
         },
         # Django's own loggers
         'django': {
-            'handlers': ['console', 'file'],
+            'handlers': LOGGING_HANDLERS, # Use the dynamic handler list
             'level': 'INFO',
             'propagate': True,
         },
         'django.db.backends': {
             'handlers': ['console'],
-            'level': 'WARNING', # Reduce noise from database queries # Quieter database logs unless there's an issue.
+            'level': 'WARNING', # Quieter database logs unless there's an issue.
             'propagate': False,
         },
         # Our application's loggers
         'forex_agent': {
-            'handlers': ['console', 'file'],
+            'handlers': LOGGING_HANDLERS, # Use the dynamic handler list
             'level': 'DEBUG', # Capture all our custom logs
             'propagate': False,
         },
         'a2a_protocol': {
-            'handlers': ['console', 'file'],
+            'handlers': LOGGING_HANDLERS, # Use the dynamic handler list
             'level': 'DEBUG',
             'propagate': False,
         },
