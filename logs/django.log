@@ -11,3 +11,24 @@ INFO 2025-11-02 01:50:01,823 autoreload [13356:11504] - Watching for file change
 INFO 2025-11-02 01:52:42,945 autoreload [12052:14728] - Watching for file changes with StatReloader
 INFO 2025-11-02 01:54:26,534 autoreload [5900:8660] - Watching for file changes with StatReloader
 INFO 2025-11-02 01:54:42,140 runserver [5900:14092] - [mHTTP GET / 200 [0.29, 127.0.0.1:62273][0m
+INFO 2025-11-02 01:57:39,529 autoreload [7856:6968] - Watching for file changes with StatReloader
+INFO 2025-11-02 01:57:55,799 runserver [7856:15884] - [mHTTP GET / 200 [0.03, 127.0.0.1:62341][0m
+INFO 2025-11-02 01:58:53,508 runserver [7856:15884] - [mHTTP GET / 200 [0.03, 127.0.0.1:62352][0m
+WARNING 2025-11-02 01:58:54,074 log [7856:4532] - Not Found: /favicon.ico
+WARNING 2025-11-02 01:58:54,076 runserver [7856:15884] - [33mHTTP GET /favicon.ico 404 [0.15, 127.0.0.1:62352][0m
+WARNING 2025-11-02 01:59:12,766 log [7856:4532] - Not Found: /strings
+WARNING 2025-11-02 01:59:12,780 runserver [7856:15884] - [33mHTTP GET /strings 404 [0.08, 127.0.0.1:62355][0m
+INFO 2025-11-02 01:59:31,693 runserver [7856:15884] - [32mHTTP GET /admin 301 [0.02, 127.0.0.1:62360][0m
+INFO 2025-11-02 01:59:31,893 runserver [7856:15884] - [32mHTTP GET /admin/ 302 [0.19, 127.0.0.1:62360][0m
+INFO 2025-11-02 01:59:32,245 runserver [7856:15884] - [mHTTP GET /admin/login/?next=/admin/ 200 [0.33, 127.0.0.1:62360][0m
+INFO 2025-11-02 01:59:32,775 runserver [7856:15884] - [mHTTP GET /static/admin/css/nav_sidebar.css 200 [0.43, 127.0.0.1:62362][0m
+INFO 2025-11-02 01:59:32,785 runserver [7856:15884] - [mHTTP GET /static/admin/css/base.css 200 [0.44, 127.0.0.1:62360][0m
+INFO 2025-11-02 01:59:32,794 runserver [7856:15884] - [mHTTP GET /static/admin/css/login.css 200 [0.44, 127.0.0.1:62364][0m
+INFO 2025-11-02 01:59:32,812 runserver [7856:15884] - [mHTTP GET /static/admin/css/dark_mode.css 200 [0.47, 127.0.0.1:62361][0m
+INFO 2025-11-02 01:59:32,825 runserver [7856:15884] - [mHTTP GET /static/admin/css/responsive.css 200 [0.47, 127.0.0.1:62365][0m
+INFO 2025-11-02 01:59:32,857 runserver [7856:15884] - [mHTTP GET /static/admin/js/theme.js 200 [0.51, 127.0.0.1:62363][0m
+INFO 2025-11-02 01:59:32,951 runserver [7856:15884] - [mHTTP GET /static/admin/js/nav_sidebar.js 200 [0.10, 127.0.0.1:62365][0m
+INFO 2025-11-02 01:59:37,698 runserver [7856:15884] - [mHTTP POST /admin/login/?next=/admin/ 200 [2.28, 127.0.0.1:62365][0m
+INFO 2025-11-02 16:02:27,652 autoreload [4216:5568] - Watching for file changes with StatReloader
+INFO 2025-11-02 16:09:27,913 autoreload [4216:5568] - C:\Users\S A M U E L\hng-stage-3-agent\forex_agent\models.py changed, reloading.
+INFO 2025-11-02 16:09:32,041 autoreload [10168:6216] - Watching for file changes with StatReloader
