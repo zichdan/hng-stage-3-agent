@@ -166,18 +166,11 @@ CELERY_TASK_REJECT_ON_WORKER_LOST = True
 
 
 # Defines the schedule for our proactive knowledge-gathering tasks.
+# This is now the SINGLE entry point for all scheduled work.
 CELERY_BEAT_SCHEDULE = {
     'scheduled-knowledge-update-every-2-hours': {
         'task': 'forex_agent.tasks.scheduled_knowledge_update',
         'schedule': crontab(minute='0', hour='*/2'),  # Runs at 00:00, 02:00, 04:00, etc.
-    },
-    'scrape-and-process-knowledge-base-every-2-hours': {
-        'task': 'forex_agent.tasks.scrape_and_process_educational_content',
-        'schedule': crontab(minute='0', hour='*/2'),  # Every 2 hours, at the top of the hour
-    },
-    'fetch-and-process-market-news-every-2-hours': {
-        'task': 'forex_agent.tasks.fetch_and_process_market_news',
-        'schedule': crontab(minute='30', hour='*/2'), # Every 2 hours, offset by 30 mins
     },
 }
 
@@ -328,14 +321,17 @@ LOGGING = {
     },
 }
 
-
-
-
-
-
-
-
-
-
-
-
+# ==============================================================================
+# CUSTOM APPLICATION CONFIGURATION
+# ==============================================================================
+# This is where we will store the configuration for our web scraper.
+SCRAPER_CONFIG = {
+    "BABYPIPS": {
+        "START_URL": "https://www.babypips.com/learn/forex",
+        "BASE_URL": "https://www.babypips.com",
+        "LINK_SELECTOR": "a[href^='/learn/forex/']",
+        "TITLE_SELECTOR": "h1",
+        "CONTENT_SELECTOR": "article",
+        "RESPECTFUL_LIMIT": 10,  # Max number of new pages to scrape per run
+    }
+}

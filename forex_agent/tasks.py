@@ -7,6 +7,7 @@ import httpx
 from bs4 import BeautifulSoup
 from celery import shared_task
 from decouple import config
+from django.conf import settings # Import Django's settings
 
 # --- Local Imports ---
 # Import the AI services and the database model we created in previous steps.
@@ -107,7 +108,7 @@ def process_and_store_content(self, source_url: str, title: str, raw_content: st
 
 
 # ==============================================================================
-# 2. SCHEDULED KNOWLEDGE UPDATE TASK
+# 2. SCHEDULED KNOWLEDGE UPDATE TASK (ORCHESTRATOR)
 # ==============================================================================
 # This is the single main task that will be triggered by Celery Beat every 2 hours.
 # Its only job is to orchestrate the fetching and scraping by dispatching
@@ -123,7 +124,7 @@ def scheduled_knowledge_update():
     
     # Dispatch the news fetching and scraping tasks to run in parallel in the background.
     fetch_and_process_market_news.delay()
-    scrape_and_process_educational_content.delay()
+    scrape_babypips_for_links.delay() # <-- MODIFIED: Calls the new dispatcher task
     
     logger.info("--- Dispatched all knowledge update tasks. Cycle complete. ---")
 
@@ -202,47 +203,103 @@ def fetch_and_process_market_news():
         logger.critical(f"Critical error in fetch_and_process_market_news: {e}", exc_info=True)
 
 
-@shared_task
-def scrape_and_process_educational_content():
+# ==============================================================================
+# 4. REFACTORED EDUCATIONAL CONTENT SCRAPING (NEW)
+# ==============================================================================
+# This section uses a robust two-task "dispatcher/worker" pattern.
+# 1. `scrape_babypips_for_links`: Runs on a schedule to find article links.
+# 2. `process_scraped_page`: A sub-task that handles the scraping of one single page.
+# This makes the process resilient; a failure on one page won't stop the others.
+# ==============================================================================
+
+@shared_task(name="forex_agent.tasks.scrape_babypips_for_links")
+def scrape_babypips_for_links():
     """
-    Scrapes educational content from BabyPips and dispatches processing tasks.
+    Dispatcher Task: Scrapes the main BabyPips 'learn' page to find lesson URLs,
+    filters out those already in the database, and dispatches a sub-task for each new URL.
     """
-    URL = "https://www.babypips.com/learn/forex"
-    BASE_URL = "https://www.babypips.com"
-    logger.info(f"Starting sub-task: scrape_and_process_educational_content from {URL}")
+    # Load config from settings.py instead of hardcoding
+    config = settings.SCRAPER_CONFIG["BABYPIPS"]
+    START_URL = config["START_URL"]
+    BASE_URL = config["BASE_URL"]
+    
+    logger.info(f"--- Starting Scheduled Task: Scrape BabyPips for Links from {START_URL} ---")
 
     try:
         with httpx.Client(timeout=45.0, follow_redirects=True) as client:
-            response = client.get(URL)
+            response = client.get(START_URL)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # This selector must be precise and is fragile to website changes.
-            lesson_links = {BASE_URL + a['href'] for a in soup.select('a[href^="/learn/forex/"]') if a.get('href')}
-            logger.info(f"Found {len(lesson_links)} unique potential lesson URLs.")
+            # Find all potential lesson links on the page
+            lesson_links = soup.select(config["LINK_SELECTOR"])
+            all_urls_on_page = {f"{BASE_URL}{link.get('href')}" for link in lesson_links if link.get('href')}
 
-            for i, url in enumerate(list(lesson_links)):
-                if i >= 5: # Limit to 5 new articles per run to be respectful to the site
-                    break
-                
-                try:
-                    # Check if URL is already in the database before fetching
-                    if ProcessedContent.objects.filter(source_url=url).exists():
-                        continue
-                    
-                    lesson_response = client.get(url)
-                    lesson_soup = BeautifulSoup(lesson_response.text, 'html.parser')
-                    
-                    title = lesson_soup.find('h1').get_text(strip=True) if lesson_soup.find('h1') else "Untitled"
-                    content_div = lesson_soup.find('article') # A more generic selector that targets the main content area of a BabyPips lesson.
-                    
-                    if content_div:
-                        raw_content = content_div.get_text(strip=True, separator='\n')
-                        process_and_store_content.delay(
-                            source_url=url, title=title, raw_content=raw_content, content_type='article'
-                        )
-                except Exception as e:
-                    logger.error(f"Error processing individual lesson page {url}: {e}", exc_info=False)
-    
+            if not all_urls_on_page:
+                logger.warning(f"No lesson links found at {START_URL} using selector '{config['LINK_SELECTOR']}'. The website structure may have changed.")
+                return
+
+            # --- Efficiency Step: Find which URLs are new ---
+            # Fetch all existing URLs from the database in a single, efficient query.
+            existing_urls = set(ProcessedContent.objects.values_list('source_url', flat=True))
+            
+            # Calculate the difference to find what's new.
+            new_urls_to_process = all_urls_on_page - existing_urls
+            
+            if not new_urls_to_process:
+                logger.info("No new lesson URLs found on BabyPips. All content is up to date.")
+                return
+
+            logger.info(f"Found {len(new_urls_to_process)} new lesson links. Dispatching processing tasks...")
+            
+            # Dispatch a sub-task for each new URL, respecting the limit.
+            for url in list(new_urls_to_process)[:config["RESPECTFUL_LIMIT"]]:
+                process_scraped_page.delay(url)
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error while scraping {START_URL}: {e.response.status_code}")
+    except httpx.RequestError as e:
+        logger.error(f"Network error while scraping {START_URL}: {e}")
     except Exception as e:
-        logger.critical(f"A critical error occurred during the main scraping process: {e}", exc_info=True)
+        logger.critical(f"A critical error occurred during the main link scraping task: {e}", exc_info=True)
+
+
+@shared_task(
+    rate_limit='15/m', # Respectful rate limit: max 15 pages per minute.
+    autoretry_for=(httpx.RequestError, httpx.HTTPStatusError), # Automatically retry on network/server errors.
+    retry_backoff=True, # Use exponential backoff (e.g., wait 1s, then 2s, 4s...).
+    retry_kwargs={'max_retries': 3} # Retry up to 3 times before failing.
+)
+def process_scraped_page(url: str):
+    """
+    Worker Sub-task: Scrapes a single page, extracts content, and dispatches it
+    to the final processing pipeline.
+    """
+    config = settings.SCRAPER_CONFIG["BABYPIPS"]
+    try:
+        logger.debug(f"Processing scraped page: {url}")
+        with httpx.Client(timeout=30.0) as client:
+            response = client.get(url)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            title_element = soup.select_one(config["TITLE_SELECTOR"])
+            content_element = soup.select_one(config["CONTENT_SELECTOR"])
+
+            if title_element and content_element:
+                title = title_element.get_text(strip=True)
+                raw_content = content_element.get_text(strip=True, separator='\n')
+                
+                # Hand off the extracted content to the main processing pipeline.
+                process_and_store_content.delay(
+                    source_url=url,
+                    title=title,
+                    raw_content=raw_content,
+                    content_type='article'
+                )
+            else:
+                logger.warning(f"Could not extract title or content from {url}. Page structure might have changed.")
+
+    except Exception as e:
+        # This will catch errors not covered by autoretry_for, like parsing errors.
+        logger.error(f"Failed to process individual scraped page {url}: {e}", exc_info=True)
