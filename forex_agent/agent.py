@@ -54,8 +54,8 @@ def create_forex_agent_executor(context_id: str):
         # We use a powerful model like GPT-4o, which is excellent at tool usage.
         # Temperature is set low to make the agent more factual and less creative.
         llm = ChatOpenAI(
-            model="gpt-4o", 
-            temperature=0.3, 
+            model="gpt-4o", # A powerful and fast model for this task
+            temperature=0.3, # Lower temperature for more factual, less creative answers
             openai_api_key=config("OPENAI_API_KEY")
         )
 
@@ -152,6 +152,7 @@ def process_user_query(task_details: dict):
             user_message=user_prompt,
             agent_message=agent_response_text
         )
+        # Cache the new response for 10 minutes to handle repeat questions quickly.
         cache.set(cache_key, agent_response_text, timeout=600) # Cache for 10 minutes
         logger.info(f"Successfully generated and cached new response for context_id '{context_id}'.")
 
