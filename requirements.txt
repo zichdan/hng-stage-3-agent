@@ -25,6 +25,7 @@ google-generativeai # For using the Gemini API
 # --- AI & Language Models ---
 langchain               #   Core Library that provides the framework for creating agents, defining prompts, and managing tool execution (AgentExecutor).
 langchain-openai        # For OpenAI models, including ChatOpenAI (for the LLM)
+langchain-core
 
 
 # --- Web Scraping ---
@@ -34,6 +35,7 @@ requests          # A fallback/synchronous HTTP client
 # --- Environment & Utilities ---
 environs
 python-decouple     # For cleanly managing .env variables
+python-dotenv
 
 
 # --- Other Third Part-Packages  ---

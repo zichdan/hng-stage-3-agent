@@ -7,7 +7,7 @@ from rest_framework import status
 
 # Import the serializer for validation and the Celery task to be dispatched.
 from .serializers import JSONRPCRequestSerializer
-from forex_agent.agent import process_user_query # Correctly import the task
+from forex_agent.tasks import process_user_query # Correctly import the task
 
 # Get a logger instance for this module
 logger = logging.getLogger('a2a_protocol')
