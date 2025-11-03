@@ -10,6 +10,7 @@ from langchain_openai import ChatOpenAI
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import AIMessage, HumanMessage
+from django.core.cache import cache
 
 from .models import ConversationHistory
 from .tools import knowledge_base_search, get_latest_market_news
@@ -32,11 +33,14 @@ PROMPT = ChatPromptTemplate.from_messages([
 
     Your primary goal is to provide safe, educational, and motivational advice. You must adhere to the following rules at all times:
 
-    1.  **Use Your Tools:** You have access to two tools: `knowledge_base_search` for factual questions about forex concepts, and `get_latest_market_news` for news updates. You should ALWAYS prefer to use these tools to answer questions.
-    2.  **NEVER Give Financial Advice:** You must NEVER predict market movements, suggest specific trades (e.g., "should I buy EUR/USD?"), or give any form of financial advice.
+    1.  **Use Your Tools:** You have access to tools. You should ALWAYS prefer to use them to answer questions. Use `knowledge_base_search` for forex concepts and `get_latest_market_news` for news.
+    2.  **NEVER Give Financial Advice:** You must NEVER give trading signals, predict market movements, suggest specific trades (e.g., "should I buy EUR/USD?"), or give any form of financial advice.
     3.  **Safety First:** If a user's question is close to asking for financial advice, you MUST politely decline and explicitly state: 'Disclaimer: I am an AI assistant and cannot provide financial advice. My purpose is purely educational. Please consult a qualified financial professional for investment advice.'
     4.  **Answer from Context:** When your tools provide information, base your final answer primarily on that information to ensure accuracy and safety.
-    5.  **Be a Mentor:** If you don't have an answer, it's better to say so and offer to explain a related concept. Maintain an encouraging and supportive tone."""),
+    5.  **Be a Mentor:** Keep your tone simple, encouraging, and clear. Explain complex topics in a way a complete beginner can understand, If you don't have an answer, it's better to say so and offer to explain a related concept. Maintain an encouraging and supportive tone.
+    """),
+    # 6.  **Use History:** Refer to the "CONVERSATION HISTORY" to understand the flow of the conversation and provide relevant follow-up answers.
+    
     # `MessagesPlaceholder` allows us to inject the conversation history.
     MessagesPlaceholder(variable_name="chat_history"),
     # The user's current input.
@@ -88,13 +92,13 @@ def create_forex_agent_executor(context_id: str):
         return None, []
 
 # ==============================================================================
-# ON-DEMAND TASK: The Reactive Responder
+# ON-DEMAND CELERY TASK: The Reactive Responder
 # ==============================================================================
 # This is the on-demand Celery task that gets triggered by a user's message.
 # It orchestrates the entire process of getting an answer.
 # ==============================================================================
 
-@shared_task(name="forex_agent.tasks.process_user_query")
+@shared_task(name="forex_agent.agent.process_user_query")
 def process_user_query(task_details: dict):
     """
     The main on-demand Celery task that handles a single user query from start to finish.
@@ -103,35 +107,27 @@ def process_user_query(task_details: dict):
     # We pass a dictionary to keep the task signature clean.
     user_prompt = task_details.get('user_prompt')
     context_id = task_details.get('context_id')
-    webhook_config = task_details.get('webhook_config')
+    # webhook_config = task_details.get('webhook_config')        # TO BE USED LATER 
     
     logger.info(f"Received user query for context_id '{context_id}': '{user_prompt}'")
 
-    if not all([user_prompt, context_id, webhook_config]):
-        logger.error(f"Task received with missing details: {task_details}")
-        return
 
-    # --- Step 1: Check Redis Cache ---
-    # This is a critical performance and cost-saving optimization.
-    from django.core.cache import cache
-    cache_key = f"forex_agent:response:{user_prompt}"
-    cached_response = cache.get(cache_key)
-
-    if cached_response:
-        logger.info(f"Cache hit for prompt: '{user_prompt}'. Returning cached response.")
-        # We still need to save the history for this interaction
-        ConversationHistory.objects.create(
-            context_id=context_id,
-            user_message=user_prompt,
-            agent_message=cached_response
-        )
-        # Send the cached response back immediately
-        send_response_to_webhook(cached_response, task_details)
-        return
-
-    logger.info("Cache miss. Proceeding with live agent execution.")
-    
     try:
+        # --- Step 1: Check Redis Cache ---
+        # This is a critical performance and cost-saving optimization.
+        cache_key = f"forex_agent:response:{user_prompt}"
+        if (cached_response := cache.get(cache_key)):
+            logger.info(f"Cache hit for prompt: '{user_prompt}'. Returning cached response.")
+            # We still need to save the history for this interaction
+            ConversationHistory.objects.create(
+                context_id=context_id, user_message=user_prompt, agent_message=cached_response
+            )
+            # Send the cached response back immediately
+            send_response_to_webhook(cached_response, task_details)
+            return
+
+        logger.info("Cache miss. Proceeding with live agent execution.")
+        
         # --- Step 2: Create and Run the Agent ---
         agent_executor, chat_history = create_forex_agent_executor(context_id)
         if not agent_executor:

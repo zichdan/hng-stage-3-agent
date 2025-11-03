@@ -14,9 +14,9 @@ logger = logging.getLogger('forex_agent')
 @tool
 def knowledge_base_search(query: str) -> str:
     """
-    Use this tool to find information to answer a user's question about forex trading concepts.
-    It performs a semantic vector search on the internal knowledge base of pre-processed,
-    AI-verified educational articles.
+    Use this tool to find information to answer a user's question about forex trading concepts,
+    strategies, or definitions. It performs a semantic vector search on the internal knowledge
+    base of pre-processed, AI-verified educational articles. Do not use it for news.
     """
     try:
         logger.info(f"Performing knowledge base vector search for query: '{query}'")
@@ -28,11 +28,12 @@ def knowledge_base_search(query: str) -> str:
         
         if query_embedding is None:
             logger.error("Failed to generate embedding for query. Cannot perform search.")
-            return "An error occurred while preparing the search."
+            return "An internal error occurred while preparing the search."
 
         # --- Step 2: Perform Vector Search on the Database ---
         # This is the core of our RAG system. We use the L2Distance function from pgvector
         # to find the articles whose embeddings are closest to the user's query embedding.
+        # Find the top 3 most semantically similar articles using L2 distance.
         # We retrieve the top 3 most similar articles to provide rich context.
         similar_articles = ProcessedContent.objects.order_by(
             L2Distance('embedding', query_embedding)
@@ -45,6 +46,7 @@ def knowledge_base_search(query: str) -> str:
         # --- Step 3: Format the Context for the LLM ---
         # We format the search results into a clean string that will be passed back to the LLM.
         # This gives the LLM the exact information it needs to formulate an accurate answer.
+        # Concatenate the content of the found articles into a single context string.
         context = "Relevant information found in the knowledge base:\n\n"
         for article in similar_articles:
             context += f"--- Article Title: {article.title} ---\n"
@@ -55,7 +57,7 @@ def knowledge_base_search(query: str) -> str:
 
     except Exception as e:
         logger.critical(f"A critical error occurred during vector search: {e}", exc_info=True)
-        return f"An internal error occurred during the knowledge base search: {e}"
+        return f"An internal error occurred during the knowledge base search: {str(e)}"
 
 # ==============================================================================
 # TOOL 2: MARKET NEWS RETRIEVAL
@@ -63,14 +65,14 @@ def knowledge_base_search(query: str) -> str:
 @tool
 def get_latest_market_news() -> str:
     """
-    Use this tool when a user explicitly asks for the latest forex news, a market
-    summary, or current market trends. It retrieves the most recent, pre-summarized
-    news articles directly from our database.
+    Use this tool ONLY when a user explicitly asks for the 'latest forex news', 'market
+    summary', 'market update', or 'current market trends'. It retrieves the most recent,
+    pre-summarized news articles directly from the database.
     """
     try:
         logger.info("Fetching latest market news from the database.")
         
-        # --- Retrieve Pre-processed News ---
+        # --- Retrieve the 5 most recent Pre-processed News articles ---
         # This query is extremely fast because the news has already been fetched,
         # processed by Gemini, and stored by our scheduled Celery Beat task.
         # We simply retrieve the top 5 most recent news articles.
@@ -91,4 +93,4 @@ def get_latest_market_news() -> str:
 
     except Exception as e:
         logger.critical(f"A critical error occurred while fetching market news: {e}", exc_info=True)
-        return f"An internal error occurred while fetching news from the database: {e}"
+        return f"An internal error occurred while fetching news from the database: {str(e)}"

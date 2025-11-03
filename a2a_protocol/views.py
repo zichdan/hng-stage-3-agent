@@ -7,7 +7,7 @@ from rest_framework import status
 
 # Import the serializer for validation and the Celery task to be dispatched.
 from .serializers import JSONRPCRequestSerializer
-from forex_agent.tasks import process_user_query
+from forex_agent.agent import process_user_query # Correctly import the task
 
 # Get a logger instance for this module
 logger = logging.getLogger('a2a_protocol')
@@ -31,8 +31,8 @@ class A2AEndpointView(APIView):
         logger.info(f"Received A2A request for agent: '{agent_name}'")
 
         # --- Step 1: Validate the incoming request against our serializer ---
-        # If the data is invalid, DRF will automatically raise a validation error,
-        # which our custom exception handler will format into a clean 400 Bad Request.
+        # If the data is invalid, DRF's raise_exception=True handles it,
+        # which our custom exception handler formats into a clean 400 Bad Request.
         serializer = JSONRPCRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
