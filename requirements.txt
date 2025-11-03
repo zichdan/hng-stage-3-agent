@@ -21,6 +21,12 @@ httpx             # Modern, async-first HTTP client
 openai              # For embeddings and/or chat models
 google-generativeai # For using the Gemini API
 
+
+# --- AI & Language Models ---
+langchain               #   Core Library that provides the framework for creating agents, defining prompts, and managing tool execution (AgentExecutor).
+langchain-openai        # For OpenAI models, including ChatOpenAI (for the LLM)
+
+
 # --- Web Scraping ---
 beautifulsoup4
 requests          # A fallback/synchronous HTTP client

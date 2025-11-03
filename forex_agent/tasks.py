@@ -29,7 +29,7 @@ logger = logging.getLogger('forex_agent')
 @shared_task(
     bind=True,  # Binds the task instance to `self`, allowing for retries
     autoretry_for=(Exception,),  # Automatically retry this task on ANY exception
-    retry_kwargs={'max_retries': 3, 'countdown': 90}, # Retry up to 3 times, with a 90-second delay.
+    retry_kwargs={'max_retries': 3, 'countdown': 120}, # Retry up to 3 times, with a 2-minute delay
     acks_late=True # Ensures the task is only acknowledged after it completes successfully
 )
 def process_and_store_content(self, source_url: str, title: str, raw_content: str, content_type: str, published_at_str: str | int = None):
@@ -102,7 +102,7 @@ def process_and_store_content(self, source_url: str, title: str, raw_content: st
         # A final, robust catch-all. This will log the error and then re-raise it,
         # which allows Celery's retry mechanism to take over.
         logger.critical(f"A critical error occurred in process_and_store_content for URL {source_url}: {exc}", exc_info=True)
-        raise exc
+        raise exc # Re-raise to trigger Celery's autoretry mechanism.
 
 
 
