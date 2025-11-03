@@ -2,264 +2,247 @@
 import asyncio
 import logging
 from datetime import datetime
-from decouple import config
+from zoneinfo import ZoneInfo
 import httpx
 from bs4 import BeautifulSoup
 from celery import shared_task
-from django.utils.dateparse import parse_datetime
+from decouple import config
 
-# Import our AI services and database models
+# --- Local Imports ---
+# Import the AI services and the database model we created in previous steps.
 from .ai_services import ai_processor, embedding_generator
 from .models import ProcessedContent
 
-# ==============================================================================
-# SETUP & CONFIGURATION
-# ==============================================================================
-
-# Get a logger instance specific to the 'forex_agent' app
+# Get a logger instance for this module, as configured in settings.py.
+# This allows us to see detailed, app-specific logs during execution.
 logger = logging.getLogger('forex_agent')
 
-# Load API keys securely from the .env file
-FINNHUB_API_KEY = config('FINNHUB_API_KEY', default=None)
-ALPHA_VANTAGE_API_KEY = config('ALPHA_VANTAGE_API_KEY', default=None)
-
-
 # ==============================================================================
-# HELPER SUB-TASK
+# 1. GENERIC CONTENT PROCESSING SUB-TASK
 # ==============================================================================
-
-@shared_task(rate_limit='10/m', acks_late=True) # Rate limit to 10 tasks per minute to avoid overwhelming AI APIs
-def process_and_store_content(source_url: str, title: str, raw_content: str, content_type: str, published_at_str: str = None):
+# This is a generic, reusable task. Its only job is to take raw content,
+# process it through our AI services, and save it to the database. By keeping
+# it separate, we make our system more modular and easier to debug. This is the
+# final step in our data processing pipeline.
+# ==============================================================================
+@shared_task(
+    bind=True,  # Binds the task instance to `self`, allowing for retries
+    autoretry_for=(Exception,),  # Automatically retry this task on ANY exception
+    retry_kwargs={'max_retries': 3, 'countdown': 90}, # Retry up to 3 times, with a 90-second delay.
+    acks_late=True # Ensures the task is only acknowledged after it completes successfully
+)
+def process_and_store_content(self, source_url: str, title: str, raw_content: str, content_type: str, published_at_str: str | int = None):
     """
-    A generic, robust sub-task to process a single piece of content.
-    This task is called by the main fetching and scraping tasks. It handles:
-    1. AI-powered content cleaning and formatting.
-    2. Vector embedding generation.
-    3. Saving the final, processed content to the database.
+    A robust, retryable Celery task that forms the core of our knowledge pipeline.
+    It takes raw data, processes it with AI, generates an embedding, and saves it to the database.
     """
     try:
-        logger.info(f"Starting processing for content from: {source_url}")
+        logger.info(f"Starting to process content for URL: {source_url}")
 
-        # Step 1: Check if this content already exists in our database.
-        # --- Prevent Duplicate Processing ---
-        # This check is crucial to avoid re-processing the same content, saving time and API costs.
+        # --- Step 1: Check for Duplicates ---
+        # This prevents us from re-processing and re-hitting AI APIs for content we already have.
+        # It's a critical step for efficiency and cost-saving.
         if ProcessedContent.objects.filter(source_url=source_url).exists():
-            logger.info(f"Content from {source_url} already exists in the database. Skipping Processing.")
-            return f"Skipped: {title}"
+            logger.warning(f"Content from URL {source_url} already exists in the database. Skipping.")
+            return f"Skipped: {source_url} already exists."
 
 
-        # Step 2: Use our Gemini AI service to clean and articulate the content.
-        # --- AI Content Articulation (using Gemini) ---
-        # This is where we transform raw, messy data into high-quality knowledge.
-        logger.debug(f"Sending raw content (length: {len(raw_content)}) to AI processor...")
+        # --- Step 2: AI-Powered Content Processing (using Gemini) ---
+        # Use the Gemini service to clean, articulate and transform raw data into beginner-friendly knowledge.
+        logger.debug(f"Calling AI processor for '{title}'...")
         processed_text = ai_processor.clean_and_format_text(raw_content, content_type=content_type)
-        if not processed_text or "Content could not be processed" in processed_text:
-            logger.error(f"AI content processing failed for {source_url} or returned empty for '{title}'. Aborting storage.")
+        if not processed_text or "could not be processed" in processed_text:
+            logger.error(f"AI processing failed or returned empty for '{title}'. Aborting storage.")
             return f"AI Processing Failed: {title}"
 
 
-        # Step 3: Use our OpenAI service to generate a vector embedding for the clean text.
-        # --- Vector Embedding Generation (using OpenAI) ---
-        # This creates the vector needed for our semantic search (RAG) system.
-        logger.debug("Generating vector embedding for processed content...")
+        # --- Step 3: Vector Embedding Generation (using OpenAI) ---
+        # Use the OpenAI service to create a vector embedding for the cleaned text needed for our semantic search system.
+        logger.debug(f"Generating embedding for '{title}'...")
         embedding_vector = embedding_generator.create_embedding(processed_text)
         if embedding_vector is None:
-            logger.error(f"Failed to generate embedding for {source_url}. Aborting storage.")
-            return
+            # If embedding fails, we raise an exception. Because of `autoretry_for=(Exception,)`,
+            # Celery will automatically catch this and retry the task later.
+            logger.error(f"Failed to generate embedding for '{title}'. This task will be retried.")
+            raise ValueError(f"Embedding generation failed for {title}")
 
 
-        # Step 4: Parse the publication date string into a datetime object if it exists.
-        # --- Parse Datetime ---
-        # Safely parse the publication date string into a timezone-aware datetime object.
-        published_at = None
+        # --- Step 4: Prepare Robust Datetime Timestamp Parsing ---
+        # This handles the different date formats from our various sources.
+        published_at_dt = None
         if published_at_str:
+            # Handle different timestamp formats from APIs:
             try:
-                published_at = parse_datetime(published_at_str)
-            except ValueError:
-                logger.warning(f"Could not parse datetime string: {published_at_str}")
-
-
-
-        # Step 5: Save the fully processed article to our PostgreSQL database.
-        # --- Save to Database ---
-        # The update_or_create method is an "upsert" operation. It safely creates the
-        # new record or updates it if it somehow already exists.
-        obj, created = ProcessedContent.objects.update_or_create(
-            source_url=source_url,
-            defaults={
-                'title': title,
-                'processed_text': processed_text,
-                'embedding': embedding_vector,
-                'content_type': content_type,
-                'published_at': published_at,
-            }
-        )
+                if isinstance(published_at_str, int):
+                    # Finnhub provides a UNIX timestamp (integer).
+                    published_at_dt = datetime.fromtimestamp(published_at_str, tz=ZoneInfo("UTC"))
+                elif isinstance(published_at_str, str):
+                    # Alpha Vantage provides an ISO-like format string 'YYYYMMDDTHHMMSS'.
+                    published_at_dt = datetime.strptime(published_at_str, '%Y%m%dT%H%M%S').replace(tzinfo=ZoneInfo("UTC"))
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Could not parse timestamp '{published_at_str}' for URL {source_url}. Error: {e}")
         
-        if created:
-            logger.info(f"Successfully CREATED new knowledge article: {title}")
-        else:
-            logger.info(f"Successfully UPDATED existing knowledge article: {title}")
 
-    except Exception as e:
-        # A robust catch-all for any unexpected errors during the process.
-        logger.critical(f"A critical error occurred in process_and_store_content for URL {source_url}: {e}", exc_info=True)
+        # --- Step 5: Save to Database ---
+        logger.debug(f"Saving article '{title}' to database...")
+        ProcessedContent.objects.create(
+            source_url=source_url,
+            title=title,
+            processed_content=processed_text,
+            embedding=embedding_vector,
+            content_type=content_type,
+            published_at=published_at_dt,
+        )
+
+        logger.info(f"Successfully processed and stored content from: {source_url}")
+        return f"Successfully processed: {source_url}"
+
+    except Exception as exc:
+        # A final, robust catch-all. This will log the error and then re-raise it,
+        # which allows Celery's retry mechanism to take over.
+        logger.critical(f"A critical error occurred in process_and_store_content for URL {source_url}: {exc}", exc_info=True)
+        raise exc
+
+
 
 
 # ==============================================================================
-# SCHEDULED MAIN TASKS (for Celery Beat)
+# 2. SCHEDULED KNOWLEDGE UPDATE TASK
 # ==============================================================================
-
+# This is the single main task that will be triggered by Celery Beat every 2 hours.
+# Its only job is to orchestrate the fetching and scraping by dispatching
+# other, more specific tasks. This keeps the logic clean and modular.
+# ==============================================================================
 @shared_task(name="forex_agent.tasks.scheduled_knowledge_update")
 def scheduled_knowledge_update():
     """
-    This is the main scheduled task, triggered by Celery Beat every 2 hours.
-    It orchestrates the fetching of news and the scraping of educational content
-    by dispatching other asynchronous tasks.
+    The main scheduled task, triggered by Celery Beat. It orchestrates the
+    fetching of news and the scraping of educational content.
     """
     logger.info("--- Starting Bi-Hourly Knowledge Update Cycle ---")
     
-    # Dispatch the news fetching task to run in the background.
-    fetch_market_news.delay()
-    
-    # Dispatch the web scraping task to run in the background.
-    scrape_educational_content.delay()
+    # Dispatch the news fetching and scraping tasks to run in parallel in the background.
+    fetch_and_process_market_news.delay()
+    scrape_and_process_educational_content.delay()
     
     logger.info("--- Dispatched all knowledge update tasks. Cycle complete. ---")
 
 
+# ==============================================================================
+# 3. CONCRETE FETCHER AND SCRAPER TASKS
+# ==============================================================================
+# These are the worker tasks that do the actual fetching and scraping.
+# They are designed to be self-contained and focused on a single source.
+# ==============================================================================
 @shared_task
-def fetch_market_news():
+def fetch_and_process_market_news():
     """
-    Fetches news from Finnhub and Alpha Vantage concurrently, then dispatches
-    sub-tasks to process each article.
+    Fetches market news concurrently from Finnhub and Alpha Vantage,
+    then dispatches processing tasks for each article.
     """
-    logger.info("Starting market news fetch...")
+    logger.info("Starting sub-task: fetch_and_process_market_news")
 
-    # --- Asynchronous Fetching Logic ---
-    async def fetch_all():
-        async with httpx.AsyncClient(timeout=30.0) as client:
+    async def fetch_news_concurrently():
+        finnhub_key = config('FINNHUB_API_KEY', default=None)
+        alpha_vantage_key = config('ALPHA_VANTAGE_API_KEY', default=None)
+
+        async with httpx.AsyncClient(timeout=30) as client:
             tasks = []
-            
-            # Task for Finnhub API
-            if FINNHUB_API_KEY:
-                finnhub_url = f"https://finnhub.io/api/v1/news?category=forex&token={FINNHUB_API_KEY}"
-                tasks.append(client.get(finnhub_url))
-                logger.debug("Added Finnhub request to task list.")
+            if finnhub_key:
+                tasks.append(client.get(f"https://finnhub.io/api/v1/news?category=forex&token={finnhub_key}"))
             else:
-                logger.warning("FINNHUB_API_KEY not set. Skipping Finnhub.")
+                logger.warning("FINNHUB_API_KEY is not configured. Skipping Finnhub fetch.")
 
-            # Task for Alpha Vantage API
-            if ALPHA_VANTAGE_API_KEY:
-                alpha_vantage_url = f"https://www.alphavantage.co/query?function=NEWS_SENTIMENT&topics=financial_markets&apikey={ALPHA_VANTAGE_API_KEY}"
-                tasks.append(client.get(alpha_vantage_url))
-                logger.debug("Added Alpha Vantage request to task list.")
+            if alpha_vantage_key:
+                tasks.append(client.get(f"https://www.alphavantage.co/query?function=NEWS_SENTIMENT&topics=financial_markets&apikey={alpha_vantage_key}"))
             else:
-                logger.warning("ALPHA_VANTAGE_API_KEY not set. Skipping Alpha Vantage.")
+                logger.warning("ALPHA_VANTAGE_API_KEY is not configured. Skipping Alpha Vantage fetch.")
 
             if not tasks:
-                logger.error("No news API keys are configured. Cannot fetch news.")
+                logger.error("No news API keys configured. Cannot fetch news / Terminating news fetch task.")
                 return
-
-            # Execute all requests concurrently
+            
+            # `return_exceptions=True` is crucial for resilience.
             responses = await asyncio.gather(*tasks, return_exceptions=True)
-            return responses
+            
+            # --- Process Finnhub Response ---
+            try:
+                if len(responses) > 0 and isinstance(responses[0], httpx.Response):
+                    if responses[0].status_code == 200:
+                        for item in responses[0].json()[:10]:
+                            if all(k in item for k in ['url', 'headline', 'summary']):
+                                process_and_store_content.delay(
+                                    source_url=item['url'], title=item['headline'], raw_content=item['summary'],
+                                    content_type='news', published_at_str=item.get('datetime')
+                                )
+                    else:
+                        logger.error(f"Finnhub API returned status {responses[0].status_code}")
+            except Exception as e:
+                logger.error(f"Error processing Finnhub response: {e}")
 
-    # Run the async fetching function
-    responses = asyncio.run(fetch_all())
+            # --- Process Alpha Vantage Response ---
+            try:
+                if len(responses) > 1 and isinstance(responses[1], httpx.Response):
+                    if responses[1].status_code == 200:
+                        for item in responses[1].json().get('feed', [])[:10]:
+                            if all(k in item for k in ['url', 'title', 'summary']):
+                                process_and_store_content.delay(
+                                    source_url=item['url'], title=item['title'], raw_content=item['summary'],
+                                    content_type='news', published_at_str=item.get('time_published')
+                                )
+                    else:
+                        logger.error(f"Alpha Vantage API returned status {responses[1].status_code}")
+            except Exception as e:
+                logger.error(f"Error processing Alpha Vantage response: {e}")
+
+
+    try:
+        asyncio.run(fetch_news_concurrently())
+    except Exception as e:
+        logger.critical(f"Critical error in fetch_and_process_market_news: {e}", exc_info=True)
+
+
+@shared_task
+def scrape_and_process_educational_content():
+    """
+    Scrapes educational content from BabyPips and dispatches processing tasks.
+    """
+    URL = "https://www.babypips.com/learn/forex"
+    BASE_URL = "https://www.babypips.com"
+    logger.info(f"Starting sub-task: scrape_and_process_educational_content from {URL}")
+
+    try:
+        with httpx.Client(timeout=45.0, follow_redirects=True) as client:
+            response = client.get(URL)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # This selector must be precise and is fragile to website changes.
+            lesson_links = {BASE_URL + a['href'] for a in soup.select('a[href^="/learn/forex/"]') if a.get('href')}
+            logger.info(f"Found {len(lesson_links)} unique potential lesson URLs.")
+
+            for i, url in enumerate(list(lesson_links)):
+                if i >= 5: # Limit to 5 new articles per run to be respectful to the site
+                    break
+                
+                try:
+                    # Check if URL is already in the database before fetching
+                    if ProcessedContent.objects.filter(source_url=url).exists():
+                        continue
+                    
+                    lesson_response = client.get(url)
+                    lesson_soup = BeautifulSoup(lesson_response.text, 'html.parser')
+                    
+                    title = lesson_soup.find('h1').get_text(strip=True) if lesson_soup.find('h1') else "Untitled"
+                    content_div = lesson_soup.find('article') # A more generic selector that targets the main content area of a BabyPips lesson.
+                    
+                    if content_div:
+                        raw_content = content_div.get_text(strip=True, separator='\n')
+                        process_and_store_content.delay(
+                            source_url=url, title=title, raw_content=raw_content, content_type='article'
+                        )
+                except Exception as e:
+                    logger.error(f"Error processing individual lesson page {url}: {e}", exc_info=False)
     
-    # --- Process Responses ---
-    # Process Finnhub response (assuming it's the first one if it exists)
-    try:
-        finnhub_response = responses[0]
-        if isinstance(finnhub_response, httpx.Response):
-            finnhub_response.raise_for_status()
-            news_articles = finnhub_response.json()
-            logger.info(f"Fetched {len(news_articles)} articles from Finnhub.")
-            for article in news_articles[:10]: # Process the top 10 articles
-                if article.get('url') and article.get('headline') and article.get('summary'):
-                    process_and_store_content.delay(
-                        source_url=article['url'],
-                        title=article['headline'],
-                        raw_content=article['summary'],
-                        content_type='news',
-                        published_at_str=datetime.utcfromtimestamp(article['datetime']).isoformat() + "Z"  if 'datetime' in article else None
-                    )
     except Exception as e:
-        logger.error(f"Failed to process Finnhub response: {e}", exc_info=True)
-
-    # Process Alpha Vantage response (assuming it's the second one if it exists)
-    try:
-        av_response = responses[1]
-        if isinstance(av_response, httpx.Response):
-            av_response.raise_for_status()
-            feed = av_response.json().get('feed', [])
-            logger.info(f"Fetched {len(feed)} articles from Alpha Vantage.")
-            for article in feed[:10]: # Process the top 10 articles
-                if article.get('url') and article.get('title') and article.get('summary'):
-                    process_and_store_content.delay(
-                        source_url=article['url'],
-                        title=article['title'],
-                        raw_content=article['summary'],
-                        content_type='news',
-                        published_at_str=article['time_published'] # Format: YYYYMMDDTHHMMSS
-                    )
-    except Exception as e:
-        logger.error(f"Failed to process Alpha Vantage response: {e}", exc_info=True)
-
-
-@shared_task
-def scrape_educational_content():
-    """
-    Scrapes a target educational website (e.g., BabyPips), extracts content,
-    and dispatches sub-tasks to process each article.
-    """
-    # NOTE: Web scraping must be done responsibly. Always check a site's robots.txt
-    # and terms of service. This is a simplified example.
-    scrape_url = "https://www.babypips.com/learn/forex"
-    logger.info(f"Starting educational content scrape from {scrape_url}")
-
-    try:
-        response = httpx.get(scrape_url, follow_redirects=True, timeout=30.0)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # This CSS selector needs to be specific to the site's structure.
-        # It finds all links within the main course outline.
-        lesson_links = soup.select('div.course a[href]')
-        logger.debug(f"Found {len(lesson_links)} potential lesson links on the main page.")
-
-        for link in lesson_links[:5]: # Scrape the first 5 new lessons to be polite
-            full_url = "https://www.babypips.com" + link['href']
-            
-            # Use another task to process each link individually
-            process_single_scraped_page.delay(full_url)
-            
-    except Exception as e:
-        logger.error(f"Failed to scrape main page {scrape_url}: {e}", exc_info=True)
-
-@shared_task
-def process_single_scraped_page(url: str):
-    """A sub-task to handle the scraping and processing of a single URL."""
-    try:
-        logger.debug(f"Scraping individual lesson page: {url}")
-        page_response = httpx.get(url, follow_redirects=True, timeout=30.0)
-        page_response.raise_for_status()
-        page_soup = BeautifulSoup(page_response.text, 'html.parser')
-        
-        # These selectors are specific to BabyPips and would need updating if the site changes.
-        title = page_soup.find('h1').get_text(strip=True) if page_soup.find('h1') else "Untitled"
-        content_div = page_soup.find('div', class_='fx-section') # Adjust class name as needed
-        
-        if title and content_div:
-            raw_content = content_div.get_text(separator='\n', strip=True)
-            process_and_store_content.delay(
-                source_url=url,
-                title=title,
-                raw_content=raw_content,
-                content_type='article'
-            )
-        else:
-            logger.warning(f"Could not find title or content div on page: {url}")
-            
-    except Exception as e:
-        logger.error(f"Failed to scrape or process individual page {url}: {e}", exc_info=True)
+        logger.critical(f"A critical error occurred during the main scraping process: {e}", exc_info=True)
