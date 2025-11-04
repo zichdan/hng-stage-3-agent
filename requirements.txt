@@ -17,6 +17,7 @@ django_redis
 django-celery-beat  # For scheduling our periodic tasks
 django-celery-results
 httpx             # Modern, async-first HTTP client
+gevent
 
 # --- AI & Language Models ---
 openai              # For embeddings and/or chat models

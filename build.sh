@@ -16,8 +16,10 @@ pip install -r requirements.txt
 # --- Django Management Commands ---
 echo "Running Django management commands..."
 # Run collectstatic to gather all static files for serving.
-python manage.py collectstatic --noinput
+python manage.py collectstatic --noinput --clear
 # Apply any pending database migrations.
 python manage.py migrate --noinput
 
 echo "Build script finished successfully."
+
+# pip install -r requirements.txt && python manage.py collectstatic --no-input --clear && python manage.py migrate
