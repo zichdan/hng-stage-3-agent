@@ -13,16 +13,27 @@ set -o errexit
 
 echo "--- Starting Application Processes ---"
 
-# --- 1. Start the Gunicorn Web Server ---
-# This serves the main Django application and the A2A API endpoint.
-# --bind: Binds to all network interfaces on the specified port.
-# --workers: Number of worker processes. For a free tier with 1 CPU, 3 is a good number.
-# --timeout: Sets a generous 120-second timeout for slow AI requests.
-# --log-level: Sets the logging level to 'info' for production.
-# The '&' at the end runs this process in the background.
-echo "Starting Gunicorn web server..."
-# gunicorn core.wsgi:application --bind 0.0.0.0:8080 --workers 3 --timeout 120 --log-level info &
-gunicorn core.wsgi:application --bind 0.0.0.0:8080 --workers 3 --threads 2 --timeout 120 --log-level info &
+
+
+
+
+# # --- 1. Start the Gunicorn Web Server ---
+# # This serves the main Django application and the A2A API endpoint.
+# # --bind: Binds to all network interfaces on the specified port.
+# # --workers: Number of worker processes. For a free tier with 1 CPU, 3 is a good number.
+# # --timeout: Sets a generous 120-second timeout for slow AI requests.
+# # --log-level: Sets the logging level to 'info' for production.
+# # The '&' at the end runs this process in the background.
+# echo "Starting Gunicorn web server..."
+# # gunicorn core.wsgi:application --bind 0.0.0.0:8080 --workers 3 --timeout 120 --log-level info &
+# gunicorn core.wsgi:application --bind 0.0.0.0:8080 --workers 3 --threads 2 --timeout 120 --log-level info &
+
+
+
+
+
+
+
 
 
 # --- 2. Start the Celery Worker ---
