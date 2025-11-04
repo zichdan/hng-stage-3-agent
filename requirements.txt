@@ -2,6 +2,7 @@
 Django
 django
 djangorestframework
+drf-yasg
 daphne  # ASGI server for future real-time features with Channels
 
 # --- Database ---

@@ -76,6 +76,7 @@ INSTALLED_APPS = [
     # Third-Party Apps
     'corsheaders',
     'rest_framework',
+    'drf_yasg',
     'django_celery_beat',
     'pgvector',           # Enables vector field support in PostgreSQL
 
@@ -144,7 +145,7 @@ CELERY_TIMEZONE = 'UTC'          # Can be 'UTC' or 'Africa/Lagos'
 # Production-ready settings Task routing & reliability
 CELERY_TASK_DEFAULT_QUEUE = 'default'
 CELERY_TASK_TRACK_STARTED = True
-CELERY_ACKS_LATE = True  # ensures tasks aren’t lost if worker crashes
+CELERY_ACKS_LATE = True  # Ensures tasks aren't lost if a worker process crashes before completing.  # The task is only acknowledged *after* it has successfully finished.
 CELERYD_PREFETCH_MULTIPLIER = 1  # prevent task duplication
 CELERY_TASK_REJECT_ON_WORKER_LOST = True
 
@@ -171,6 +172,12 @@ CELERY_BEAT_SCHEDULE = {
     'scheduled-knowledge-update-every-2-hours': {
         'task': 'forex_agent.tasks.scheduled_knowledge_update',
         'schedule': crontab(minute='0', hour='*/2'),  # Runs at 00:00, 02:00, 04:00, etc.
+    },
+
+    # This is the hard-coded schedule that avoids using the Admin panel.
+    "keep-render-service-awake": {
+        "task": "keep_service_awake",  # This must match the name in @shared_task
+        "schedule": 60.0,  # Run every 60 seconds (1 minute) to keep service awake.
     },
 }
 
