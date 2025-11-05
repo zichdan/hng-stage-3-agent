@@ -1,0 +1,7 @@
+# nixpacks.toml
+
+[phases.build]
+cmds = ["python manage.py collectstatic --noinput --clear"]
+
+[start]
+cmd = "python manage.py migrate && python manage.py createsu && gunicorn core.wsgi:application --bind 0.0.0.0:$PORT"
