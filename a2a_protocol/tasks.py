@@ -6,7 +6,7 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-@shared_task(name="keep_service_awake")
+@shared_task(name="a2a_protocol.tasks.keep_service_awake")
 def keep_service_awake():
     """
     A periodic Celery task that sends a request to the site's own URL
