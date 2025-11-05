@@ -176,7 +176,7 @@ CELERY_BEAT_SCHEDULE = {
 
     # This is the hard-coded schedule that avoids using the Admin panel.
     "keep-render-service-awake": {
-        "task": "core.tasks.keep_service_awake",  # This must match the name in @shared_task
+        "task": "a2a_protocol.tasks.keep_service_awake",  # This must match the name in @shared_task
         "schedule": 60.0,  # Run every 60 seconds (1 minute) to keep service awake.
     },
 }
