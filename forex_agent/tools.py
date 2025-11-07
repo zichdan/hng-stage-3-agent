@@ -50,6 +50,7 @@ def knowledge_base_search(query: str) -> str:
         context = "Relevant information found in the knowledge base:\n\n"
         for article in similar_articles:
             context += f"--- Article Title: {article.title} ---\n"
+            # CORRECTED: Standardized field name
             context += f"{article.processed_content}\n\n"
         
         logger.info(f"Found {len(similar_articles)} relevant articles for query '{query}'.")
@@ -86,7 +87,8 @@ def get_latest_market_news() -> str:
         # Present the news summaries in a clean, readable format.
         summary = "Here are the latest market news summaries:\n\n"
         for item in news_items:
-            summary += f"- **{item.title}**: {item.processed_text}\n"
+            # CORRECTED: Standardized field name from 'processed_text' to 'processed_content'
+            summary += f"- **{item.title}**: {item.processed_content}\n"
         
         logger.info(f"Retrieved {len(news_items)} recent news articles from the database.")
         return summary

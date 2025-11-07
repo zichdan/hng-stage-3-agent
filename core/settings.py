@@ -167,13 +167,24 @@ CELERY_TASK_REJECT_ON_WORKER_LOST = True
 
 
 # Defines the schedule for our proactive knowledge-gathering tasks.
-# This is now the SINGLE entry point for all scheduled work.
+# This schedule is now fully decoupled and staggered.
+# CORRECTED: Tasks are now scheduled separately and offset to prevent bursts.
 CELERY_BEAT_SCHEDULE = {
-    'scheduled-knowledge-update-every-2-hours': {
-        'task': 'forex_agent.tasks.scheduled_knowledge_update',
-        'schedule': crontab(minute='0', hour='*/2'),  # Runs at 00:00, 02:00, 04:00, etc.
+    # This task scrapes for new links every 2 hours.
+    'scrape-babypips-for-links': {
+        'task': 'forex_agent.tasks.scrape_babypips_for_links',
+        'schedule': crontab(minute='0', hour='*/2'),  # Runs at 00:00, 02:00, etc.
     },
-
+    # This task fetches news every 2 hours, offset from scraping.
+    'fetch-market-news': {
+        'task': 'forex_agent.tasks.fetch_and_process_market_news',
+        'schedule': crontab(minute='30', hour='*/2'), # Runs at 00:30, 02:30, etc.
+    },
+    # NEW: This task runs every 5 minutes to process one item from the raw content queue.
+    'process-one-staged-content-item': {
+        'task': 'forex_agent.tasks.process_one_staged_content_item',
+        'schedule': crontab(minute='*/5'), # Runs every 5 minutes.
+    },
     # This is the hard-coded schedule that avoids using the Admin panel.
     "keep-render-service-awake": {
         "task": "a2a_protocol.tasks.keep_service_awake",  # This must match the name in @shared_task

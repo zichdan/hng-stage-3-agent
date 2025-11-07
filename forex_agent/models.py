@@ -3,6 +3,46 @@ import uuid
 from django.db import models
 from pgvector.django import VectorField
 
+
+
+
+# ==============================================================================
+# NEW MODEL: RawContent (Staging Table)
+# ==============================================================================
+# This model acts as a staging area for all fetched and scraped content
+# before it is sent to the AI for processing. This decouples the fetching
+# process from the AI processing, making the system more resilient.
+# ==============================================================================
+
+class RawContent(models.Model):
+    """
+    Stores raw, unprocessed content fetched from news APIs or web scraping.
+    This serves as a queue for the AI processing tasks.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    source_url = models.URLField(unique=True, max_length=1000)
+    title = models.CharField(max_length=255)
+    raw_content = models.TextField()
+    content_type = models.CharField(max_length=20, choices=[('article', 'Article'), ('news', 'News')])
+    published_at_str = models.CharField(max_length=100, null=True, blank=True)
+    is_processed = models.BooleanField(default=False, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+        verbose_name = "Raw Content"
+        verbose_name_plural = "Raw Contents"
+
+    def __str__(self) -> str:
+        return f"[{'PROCESSED' if self.is_processed else 'RAW'}] {self.title}"
+
+
+
+
+
+
+
+
 # ==============================================================================
 # MODEL: ProcessedContent
 # ==============================================================================
@@ -38,18 +78,18 @@ class ProcessedContent(models.Model):
         help_text="The original or AI-generated title of the content."
     )
     
-    # This field holds the clean, AI-articulated content ready for user consumption.
-    processed_text = models.TextField(
+    # CORRECTED: This field holds the clean, AI-articulated content.
+    # Standardized to 'processed_content' for consistency across the app.
+    processed_content = models.TextField(
         help_text="The AI-cleaned, summarized, and formatted content."
     )
     
     # --- The Core of our RAG (Retrieval-Augmented Generation) System ---
     # This VectorField, powered by the pgvector extension in PostgreSQL, stores
-    # the numerical representation (embedding) of the 'processed_text'.
-    # This allows us to perform incredibly fast semantic similarity searches.
-    # We set dimensions to 768, which is a common size for models like Gemini's embedding-001.
+    # the numerical representation (embedding) of the 'processed_content'.
+    # CORRECTED: Dimensions updated to match OpenAI's 'text-embedding-3-small' model.
     embedding = VectorField(
-        dimensions=768,
+        dimensions=1536,
         help_text="Vector embedding of the processed text for semantic search."
     )
     
