@@ -11,10 +11,11 @@ from django.core.cache import cache
 from django.db import transaction
 
 # --- Local Imports ---
-# Import the AI services and all necessary database models.
+# Import the AI services and the database models we created in previous steps.
 from .ai_services import ai_processor, embedding_generator
+# Import all necessary models, including the new RawContent staging model
 from .models import RawContent, ProcessedContent, ConversationHistory
-from .agent import create_forex_agent_executor
+from .agent import create_forex_agent_executor # Import the agent factory
 
 # Get a logger instance for this module, as configured in settings.py.
 # This allows us to see detailed, app-specific logs during execution.
@@ -64,6 +65,7 @@ def _execute_ai_processing(raw_content_item: RawContent):
     published_at_str = raw_content_item.published_at_str
     if published_at_str:
         try:
+            # Handle both integer (unix timestamp) and string formats
             if isinstance(published_at_str, int) or published_at_str.isdigit():
                 published_at_dt = datetime.fromtimestamp(int(published_at_str), tz=ZoneInfo("UTC"))
             else:
@@ -81,6 +83,7 @@ def _execute_ai_processing(raw_content_item: RawContent):
         content_type=raw_content_item.content_type,
         published_at=published_at_dt,
     )
+
     logger.info(f"Successfully processed and stored content from: {source_url}")
 
 
@@ -92,17 +95,18 @@ def process_one_staged_content_item():
     are always spaced out, providing a robust solution to rate-limiting.
     """
     try:
-        # Use a database transaction to ensure atomicity. `select_for_update` locks the
-        # chosen row, preventing other workers from processing the same item simultaneously.
+        # A database transaction ensures that the select and update operations are atomic.
+        # `select_for_update(skip_locked=True)` is a professional pattern to prevent multiple
+        # workers from picking up the same task in a distributed environment.
         with transaction.atomic():
-            # Get the oldest unprocessed item that isn't already locked by another worker.
+            # Find the oldest unprocessed item in the queue that is not already locked by another worker.
             item_to_process = RawContent.objects.select_for_update(skip_locked=True).filter(is_processed=False).order_by('created_at').first()
             
             if not item_to_process:
-                logger.debug("No new raw content in the staging queue to process.")
+                logger.info("No new raw content in the staging queue to process at this time.")
                 return
 
-            logger.info(f"Found item in staging queue: '{item_to_process.title}'")
+            logger.info(f"Found item in staging queue to process: '{item_to_process.title}'")
             
             # Execute the core AI processing and storage logic.
             _execute_ai_processing(item_to_process)
@@ -128,8 +132,8 @@ def process_one_staged_content_item():
 @shared_task(name="forex_agent.tasks.fetch_and_process_market_news")
 def fetch_and_process_market_news():
     """
-    REFACTORED: Fetches market news and saves it to the RawContent staging table.
-    This task is fully synchronous and does not involve any AI processing.
+    REFACTORED: Fetches market news and saves the raw data to the `RawContent`
+    staging table for later, controlled processing. This task is fully synchronous.
     """
     logger.info("--- Starting Scheduled Task: Fetch Market News ---")
     finnhub_key = config('FINNHUB_API_KEY', default=None)
@@ -143,7 +147,7 @@ def fetch_and_process_market_news():
                 response.raise_for_status()
                 for item in response.json()[:10]:
                     if all(k in item for k in ['url', 'headline', 'summary']):
-                        # Save to staging table. If URL exists, update it.
+                        # Use update_or_create to prevent duplicate raw entries and IntegrityError.
                         RawContent.objects.update_or_create(
                             source_url=item['url'],
                             defaults={
@@ -151,7 +155,7 @@ def fetch_and_process_market_news():
                                 'raw_content': item['summary'],
                                 'content_type': 'news',
                                 'published_at_str': str(item.get('datetime')),
-                                'is_processed': False
+                                'is_processed': False  # Mark/reset for processing.
                             }
                         )
             except Exception as e:
@@ -181,8 +185,8 @@ def fetch_and_process_market_news():
 @shared_task(name="forex_agent.tasks.scrape_babypips_for_links")
 def scrape_babypips_for_links():
     """
-    Dispatcher Task: Scrapes the BabyPips main page to find new lesson URLs
-    and dispatches worker tasks to scrape each page individually.
+    Dispatcher Task: Scrapes the main BabyPips 'learn' page to find new lesson URLs
+    and dispatches worker tasks to scrape each page and save it to the staging table.
     """
     # Load config from settings.py instead of hardcoding
     config = settings.SCRAPER_CONFIG["BABYPIPS"]
@@ -252,11 +256,15 @@ def scrape_and_stage_page(url: str):
                 raw_content = content_element.get_text(strip=True, separator='\n')
                 
                 # Hand off the raw content to the staging table for later, controlled processing.
-                RawContent.objects.create(
+                # Use update_or_create to save the raw content to the staging table.
+                RawContent.objects.update_or_create(
                     source_url=url,
-                    title=title,
-                    raw_content=raw_content,
-                    content_type='article'
+                    defaults={
+                        'title': title,
+                        'raw_content': raw_content,
+                        'content_type': 'article',
+                        'is_processed': False
+                    }
                 )
             else:
                 logger.warning(f"Could not extract title or content from {url}. Page structure might have changed.")
