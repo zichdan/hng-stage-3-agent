@@ -3,6 +3,10 @@ import logging
 from decouple import config
 import google.generativeai as genai
 from openai import OpenAI
+
+# NEW: Import the SentenceTransformer library
+from sentence_transformers import SentenceTransformer
+
 # ==============================================================================
 # INITIALIZATION & CONFIGURATION
 # ==============================================================================
@@ -125,21 +129,36 @@ class GeminiContentProcessor:
             logger.error(f"An unexpected error occurred while calling the Gemini API: {e}", exc_info=True)
             return raw_text # Fallback to the original text in case of an API error
 
+
 # ==============================================================================
-# REFACTORED SERVICE CLASS: EmbeddingGenerator (Using Google AI)
+# NEW ARCHITECTURE: Self-Hosted Embedding Model
 # ==============================================================================
-# This class now uses the Google Generative AI SDK for creating embeddings,
-# removing the dependency on OpenAI for this step and solving the quota issue.
+# This singleton pattern loads the model into memory only ONCE per worker process,
+# making it highly efficient for repeated calls within Celery tasks.
+
+try:
+    logger.info("Loading self-hosted embedding model 'all-MiniLM-L6-v2' into memory...")
+    embedding_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+    logger.info("Embedding model loaded successfully.")
+except Exception as e:
+    logger.critical(f"Failed to load the sentence-transformer model: {e}", exc_info=True)
+    embedding_model = None
+
+# ==============================================================================
+# REFACTORED SERVICE CLASS: EmbeddingGenerator (Self-Hosted)
+# ==============================================================================
+# This class now uses the locally loaded sentence-transformer model.
+# It is completely free and has no rate limits.
 # ==============================================================================
 
 class EmbeddingGenerator:
     """
-    A service class to generate vector embeddings for text using Google's AI Platform.
+    A service class to generate vector embeddings using a self-hosted, open-source model.
     These embeddings are crucial for the semantic search (RAG) functionality.
     """
     def create_embedding(self, text: str) -> list[float] | None:
         """
-        Creates a vector embedding for the given text using Google's 'embedding-001' model.
+        Creates a vector embedding for the given text using the loaded model.
         Includes robust error handling for common API issues.
 
         Args:
@@ -148,26 +167,19 @@ class EmbeddingGenerator:
         Returns:
             list[float] | None: A list of floats representing the vector, or None if an error occurs.
         """
-        if not genai or not gemini_api_key:
-            logger.error("EmbeddingGenerator cannot run because the Google Gemini client is not initialized.")
+        if embedding_model is None:
+            logger.error("EmbeddingGenerator cannot run because the embedding model failed to load.")
             return None
-
+        
         try:
-            # The `embed_content` function is the equivalent of OpenAI's `embeddings.create`.
-            # The model 'models/embedding-001' is a standard, high-quality text embedding model.
-            logger.debug(f"Requesting Google AI embedding for text snippet (length: {len(text)})...")
-            result = genai.embed_content(
-                model="models/embedding-001",
-                content=text,
-                task_type="RETRIEVAL_DOCUMENT", # Specifies the intended use case for better results
-                title="Forex Article" # Optional title for context
-            )
-            logger.debug("Successfully received embedding from Google AI.")
-            return result['embedding']
+            # The model expects a string and returns a NumPy array, which we convert to a list.
+            logger.debug(f"Generating local embedding for text snippet (length: {len(text)})...")
+            embedding = embedding_model.encode(text, convert_to_numpy=True)
+            logger.debug("Successfully generated local embedding.")
+            return embedding.tolist()
             
         except Exception as e:
-            # A final catch-all for any unexpected issues with the embedding API.
-            logger.error(f"An unexpected error occurred while creating a Google AI embedding: {e}", exc_info=True)
+            logger.error(f"An unexpected error occurred while creating a local embedding: {e}", exc_info=True)
             return None
 
 # ==============================================================================

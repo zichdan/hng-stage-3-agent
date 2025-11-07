@@ -87,9 +87,9 @@ class ProcessedContent(models.Model):
     # --- The Core of our RAG (Retrieval-Augmented Generation) System ---
     # This VectorField, powered by the pgvector extension in PostgreSQL, stores
     # the numerical representation (embedding) of the 'processed_content'.
-    # CORRECTED: Dimensions updated to 768 to match Google's 'embedding-001' model.
+    # CORRECTED: Dimensions updated to 384 to match the 'all-MiniLM-L6-v2' model.
     embedding = VectorField(
-        dimensions=768,
+        dimensions=384,
         help_text="Vector embedding of the processed text for semantic search."
     )
     
