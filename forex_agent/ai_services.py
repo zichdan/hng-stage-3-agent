@@ -55,7 +55,7 @@ class GeminiContentProcessor:
     A service class to handle content processing tasks (cleaning, summarizing)
     using the Google Gemini API.
     """
-    def __init__(self, model_name='models/gemini-pro'): # CORRECTED: Using a confirmed available model
+    def __init__(self, model_name='models/gemini-2.0-flash-001'): # CORRECTED: Using a confirmed available model
         """
         Initializes the processor. If the Gemini client failed to configure,
         the model attribute will be None, and all methods will fail gracefully.
