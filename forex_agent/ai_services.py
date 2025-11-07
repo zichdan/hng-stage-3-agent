@@ -2,8 +2,7 @@
 import logging
 from decouple import config
 import google.generativeai as genai
-from openai import OpenAI, RateLimitError, APIError, APITimeoutError
-
+from openai import OpenAI
 # ==============================================================================
 # INITIALIZATION & CONFIGURATION
 # ==============================================================================
@@ -127,20 +126,20 @@ class GeminiContentProcessor:
             return raw_text # Fallback to the original text in case of an API error
 
 # ==============================================================================
-# SERVICE CLASS: EmbeddingGenerator  (Using OpenAI)
+# REFACTORED SERVICE CLASS: EmbeddingGenerator (Using Google AI)
 # ==============================================================================
-# This class handles the creation of vector embeddings, which are the
-# mathematical representations of text used for semantic search.
+# This class now uses the Google Generative AI SDK for creating embeddings,
+# removing the dependency on OpenAI for this step and solving the quota issue.
 # ==============================================================================
 
 class EmbeddingGenerator:
     """
-    A service class to generate vector embeddings for text using OpenAI's API.
+    A service class to generate vector embeddings for text using Google's AI Platform.
     These embeddings are crucial for the semantic search (RAG) functionality.
     """
     def create_embedding(self, text: str) -> list[float] | None:
         """
-        Creates a vector embedding for the given text using a specified model.
+        Creates a vector embedding for the given text using Google's 'embedding-001' model.
         Includes robust error handling for common API issues.
 
         Args:
@@ -149,37 +148,26 @@ class EmbeddingGenerator:
         Returns:
             list[float] | None: A list of floats representing the vector, or None if an error occurs.
         """
-        if not openai_client:
-            logger.error("EmbeddingGenerator cannot run because the OpenAI client is not initialized.")
+        if not genai or not gemini_api_key:
+            logger.error("EmbeddingGenerator cannot run because the Google Gemini client is not initialized.")
             return None
 
         try:
-            # It's good practice to replace newlines to avoid potential issues with some embedding models.
-            text_to_embed = text.replace("\n", " ")
-            
-            logger.debug(f"Requesting embedding for text snippet (length: {len(text_to_embed)})...")
-            response = openai_client.embeddings.create(
-                input=[text_to_embed],
-                model="text-embedding-3-small" # Produces 1536 dimensions; great balance of cost and performance.
+            # The `embed_content` function is the equivalent of OpenAI's `embeddings.create`.
+            # The model 'models/embedding-001' is a standard, high-quality text embedding model.
+            logger.debug(f"Requesting Google AI embedding for text snippet (length: {len(text)})...")
+            result = genai.embed_content(
+                model="models/embedding-001",
+                content=text,
+                task_type="RETRIEVAL_DOCUMENT", # Specifies the intended use case for better results
+                title="Forex Article" # Optional title for context
             )
-            logger.debug("Successfully received embedding from OpenAI.")
-            return response.data[0].embedding
+            logger.debug("Successfully received embedding from Google AI.")
+            return result['embedding']
             
-        except RateLimitError as e:
-            # This specific error occurs when you send requests too quickly.
-            logger.error(f"OpenAI API rate limit exceeded. Please check your plan and usage. Error: {e}")
-            return None
-        except APITimeoutError as e:
-            # This occurs if the API takes too long to respond.
-            logger.error(f"OpenAI API request timed out. Error: {e}")
-            return None
-        except APIError as e:
-            # This handles other generic API errors (e.g., server-side issues at OpenAI).
-            logger.error(f"OpenAI API returned an error. Status: {e.status_code}. Message: {e.message}")
-            return None
         except Exception as e:
-            # A final catch-all for any other unexpected issues.
-            logger.error(f"An unexpected error occurred while creating embedding: {e}", exc_info=True)
+            # A final catch-all for any unexpected issues with the embedding API.
+            logger.error(f"An unexpected error occurred while creating a Google AI embedding: {e}", exc_info=True)
             return None
 
 # ==============================================================================
