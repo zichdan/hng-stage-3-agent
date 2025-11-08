@@ -16,9 +16,12 @@ logger = logging.getLogger('a2a_protocol')
 # ==============================================================================
 
 class MessagePartSerializer(serializers.Serializer):
-    """Validates the 'parts' of a message, ensuring it's text-based."""
-    kind = serializers.ChoiceField(choices=["text"])
-    text = serializers.CharField(allow_blank=False, trim_whitespace=True)
+    """
+    REVISED: Validates the 'parts' of a message. It now allows for 'text' or 'data' kinds.
+    """
+    kind = serializers.ChoiceField(choices=["text", "data"])
+    text = serializers.CharField(required=False, allow_blank=True)
+    data = serializers.JSONField(required=False) # 'data' can be any valid JSON (e.g., a list of messages)
 
 class A2AMessageSerializer(serializers.Serializer):
     """Validates the main message object."""
@@ -35,12 +38,13 @@ class PushNotificationConfigSerializer(serializers.Serializer):
 
 class MessageConfigurationSerializer(serializers.Serializer):
     """Validates the overall message configuration."""
-    # We expect 'blocking' to be false for our async architecture.
-    blocking = serializers.BooleanField(default=False)
-    pushNotificationConfig = PushNotificationConfigSerializer()
+    # REVISED: 'blocking' can now be true or false.
+    blocking = serializers.BooleanField(default=True)
+    # The pushNotificationConfig is now optional.
+    pushNotificationConfig = PushNotificationConfigSerializer(required=False, allow_null=True)
 
 class MessageParamsSerializer(serializers.Serializer):
-    """Validates the 'params' block of the JSON-RPC request."""
+    """Validates the 'params' block for a 'message/send' request."""
     message = A2AMessageSerializer()
     configuration = MessageConfigurationSerializer()
     
@@ -57,7 +61,8 @@ class JSONRPCRequestSerializer(serializers.Serializer):
     """
     jsonrpc = serializers.CharField(required=True)
     id = serializers.CharField(required=True, help_text="The unique identifier for this specific request.")
-    method = serializers.ChoiceField(choices=["message/send"])
+    # REVISED: The method can be 'message/send' or other potential A2A methods.
+    method = serializers.ChoiceField(choices=["message/send", "execute"]) 
     params = MessageParamsSerializer()
 
     def validate_jsonrpc(self, value):

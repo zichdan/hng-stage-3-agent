@@ -41,7 +41,8 @@ def knowledge_base_search(query: str) -> str:
         
         if not similar_articles:
             logger.warning(f"No relevant articles found in the knowledge base for query: '{query}'")
-            return "No information was found in the internal knowledge base for this query. Please answer based on your general knowledge, but remind the user you are an AI and cannot give financial advice."
+            # REVISED: Return a clear, machine-readable signal for the fallback mechanism.
+            return "CONTEXT_NOT_FOUND: No specific information was found in the internal knowledge base for this query."
             
         # --- Step 3: Format the Context for the LLM ---
         # We format the search results into a clean string that will be passed back to the LLM.
@@ -81,8 +82,9 @@ def get_latest_market_news() -> str:
         
         if not news_items:
             logger.warning("No market news found in the database.")
-            return "There is no recent market news available in the knowledge base at this time."
-        
+            # REVISED: Return a clear, machine-readable signal.
+            return "CONTEXT_NOT_FOUND : There is no recent market news available in the knowledge base at this time."
+       
         # --- Format the Context for the LLM ---
         # Present the news summaries in a clean, readable format.
         summary = "Here are the latest market news summaries:\n\n"

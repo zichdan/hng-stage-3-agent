@@ -5,9 +5,12 @@ from langchain_openai import ChatOpenAI
 
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import AIMessage, HumanMessage
+from asgiref.sync import sync_to_async
+from django.core.cache import cache
 
 from .models import ConversationHistory
 from .tools import knowledge_base_search, get_latest_market_news
+from .ai_services import ai_processor  # Import for the fallback mechanism
 
 # Get a logger instance for this module, as configured in settings.py
 logger = logging.getLogger('forex_agent')
@@ -20,19 +23,22 @@ logger = logging.getLogger('forex_agent')
 # ==============================================================================
 
 # --- The Agent's "Constitution" or System Prompt ---
-# This is the most important part of the agent's design. It sets the rules,
-# defines the persona, and instructs the AI on how and when to use its tools.
+# REVISED: The prompt is updated to explicitly handle the "CONTEXT_NOT_FOUND"
+# signal, enabling a more reliable general-purpose AI fallback.
 PROMPT = ChatPromptTemplate.from_messages([
     ("system", """You are 'Forex Compass', a friendly, patient, and highly knowledgeable AI mentor for beginner forex traders.
 
     Your primary goal is to provide safe, educational, and motivational advice. You must adhere to the following rules at all times:
 
-    1.  **Use Your Tools:** You have access to `knowledge_base_search` for forex concepts and `get_latest_market_news` for news. You should ALWAYS prefer to use these tools to answer questions.
-    2.  **NEVER Give Financial Advice:** You must NEVER predict market movements, suggest specific trades (e.g., "should I buy EUR/USD?"), or give any form of financial advice.
-    3.  **Safety First:** If a user's question is close to asking for financial advice, you MUST politely decline and explicitly state: 'Disclaimer: I am an AI assistant and cannot provide financial advice. My purpose is purely educational. Please consult a qualified financial professional for investment advice.'
-    4.  **Answer from Context:** When your tools provide information, base your final answer primarily on that information to ensure accuracy and safety.
-    5.  **Be a Mentor:** Keep your tone simple, encouraging, and clear. Explain complex topics in a way a complete beginner can understand. If you don't have an answer, it's better to say so and offer to explain a related concept. Maintain an encouraging and supportive tone.
-    6.  **Use History:** Refer to the conversation history to understand the flow and provide relevant follow-up answers."""),
+    1.  **NEVER Give Financial Advice:** This is your most important rule. You must NEVER predict market movements, suggest specific trades (e.g., "should I buy EUR/USD?"), or give any form of financial advice.
+    2.  **Safety First:** If a user's question is close to financial advice, you MUST politely decline and explicitly state: 'Disclaimer: I am an AI assistant and cannot provide financial advice. My purpose is purely educational. Please consult a qualified financial professional for investment advice.'
+    3.  **Use Your Tools First:** You have two tools: `knowledge_base_search` (for forex concepts) and `get_latest_market_news` (for news). You should ALWAYS prefer to use these tools to answer questions related to forex or market news.
+    4.  **How to Answer (Your Hybrid Logic):**
+        * **If a tool finds information (RAG success):** Base your final answer *primarily* on the information provided by the tool. Your job is to rephrase this context into a simple, encouraging, and clear answer.
+        * **If a tool returns 'CONTEXT_NOT_FOUND' (RAG fail):** This is a special signal. Your final answer must ONLY contain the exact phrase 'FALLBACK_TO_GENERAL_KNOWLEDGE'. Do not add any other words or pleasantries. This signal will trigger a different part of the system to take over.
+    5.  **Be a Mentor:** Keep your tone simple, encouraging, and clear.
+    6.  **Small Talk:** For simple greetings or non-forex questions (like "hello", "how are you", "what is 2+2"), you MUST also output *only* the exact phrase: `FALLBACK_TO_GENERAL_KNOWLEDGE`.
+    7.  **Use History:** Refer to the conversation history to understand the flow and provide relevant follow-up answers."""),
     
     # `MessagesPlaceholder` allows us to inject the conversation history.
     MessagesPlaceholder(variable_name="chat_history"),
@@ -42,10 +48,9 @@ PROMPT = ChatPromptTemplate.from_messages([
     MessagesPlaceholder(variable_name="agent_scratchpad"),
 ])
 
-def create_forex_agent_executor(context_id: str):
+def create_forex_agent_executor(context_id: str, chat_history_from_request: list):
     """
     Creates and configures the LangChain agent executor for a given conversation.
-    This function is called by the Celery task for each new user request.
     """
     # ==============================================================================
     # THE FIX: DEFERRED IMPORT
@@ -78,12 +83,28 @@ def create_forex_agent_executor(context_id: str):
         agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
         # --- Load Chat History ---
-        # Retrieve the last 5 interactions (10 messages) for this session to provide short-term memory.
-        history_records = ConversationHistory.objects.filter(context_id=context_id).order_by('-timestamp')[:5]
-        chat_history = []
-        for record in reversed(history_records): # Reverse to get chronological order
-            chat_history.append(HumanMessage(content=record.user_message))
-            chat_history.append(AIMessage(content=record.agent_message))
+        # Prioritize history from the request if available, otherwise use database.
+        if chat_history_from_request:
+            chat_history = []
+            # The data is a list of dicts, convert to LangChain message objects
+            for msg in chat_history_from_request:
+                # Simple cleaning of HTML tags
+                text = msg.get('text', '').replace('<p>', '').replace('</p>', '')
+                # Assuming the history alternates user/agent
+                if len(chat_history) % 2 == 0:
+                     chat_history.append(HumanMessage(content=text))
+                else:
+                     chat_history.append(AIMessage(content=text))
+            logger.info(f"Loaded {len(chat_history)} messages from request data for context_id '{context_id}'.")
+
+        else:
+            # Fallback to database history if the request format changes
+            history_records = ConversationHistory.objects.filter(context_id=context_id).order_by('-timestamp')[:5]
+            chat_history = []
+            for record in reversed(history_records):
+                chat_history.append(HumanMessage(content=record.user_message))
+                chat_history.append(AIMessage(content=record.agent_message))
+            logger.info(f"Loaded {len(chat_history) // 2} interactions from database for context_id '{context_id}'.")
         
         logger.info(f"Created agent executor for context_id '{context_id}' with {len(chat_history) // 2} previous interactions.")
         return agent_executor, chat_history
@@ -91,3 +112,67 @@ def create_forex_agent_executor(context_id: str):
     except Exception as e:
         logger.critical(f"Failed to create agent executor for context_id '{context_id}': {e}", exc_info=True)
         return None, []
+
+
+# ==============================================================================
+# ASYNCHRONOUS AGENT EXECUTION LOGIC WITH FALLBACK
+# ==============================================================================
+# This function orchestrates the full logic: RAG-first, with a direct AI fallback.
+
+async def get_agent_response_async(user_prompt: str, context_id: str, chat_history_from_request: list) -> str:
+    """
+    Handles a single user query asynchronously, with a fallback to general AI.
+    """
+    try:
+        # --- Step 1: Check Redis Cache (Asynchronously) ---
+        cache_key = f"forex_agent:response:{user_prompt}"
+        cached_response = await sync_to_async(cache.get)(cache_key)
+        
+        if cached_response:
+            logger.info(f"Cache hit for prompt: '{user_prompt}'. Returning cached response.")
+            # Save history even on a cache hit (fire-and-forget).
+            await sync_to_async(ConversationHistory.objects.create)(
+                context_id=context_id, user_message=user_prompt, agent_message=cached_response
+            )
+            return cached_response
+
+        logger.info("Cache miss. Proceeding with live agent execution.")
+        
+        # --- Step 2: Create and Run the RAG-based LangChain Agent ---
+        agent_executor, chat_history = await sync_to_async(create_forex_agent_executor)(context_id, chat_history_from_request)
+        if not agent_executor:
+            raise Exception("Agent executor could not be created.")
+            
+        result = await sync_to_async(agent_executor.invoke)({
+            "input": user_prompt,
+            "chat_history": chat_history
+        })
+        agent_response_text = result['output']
+
+        # --- Step 3: Implement the Fallback Mechanism ---
+        if "CONTEXT_NOT_FOUND" in agent_response_text or "FALLBACK_TO_GENERAL_KNOWLEDGE" in agent_response_text:
+            logger.warning("Knowledge base search failed. Triggering direct AI fallback.")
+            
+            # Format history for the fallback prompt
+            history_str = "\n".join([f"{'User' if isinstance(m, HumanMessage) else 'You'}: {m.content}" for m in chat_history])
+            
+            # Call the new, fast, async Q&A method from ai_services
+            # We pass the original chat_history for context
+            fallback_response = await ai_processor.get_general_qna_response(user_prompt, history_str)
+            agent_response_text = fallback_response
+        
+        # --- Step 4: Save and Cache the Final Response ---
+        await sync_to_async(ConversationHistory.objects.create)(
+            context_id=context_id,
+            user_message=user_prompt,
+            agent_message=agent_response_text
+        )
+        await sync_to_async(cache.set)(cache_key, agent_response_text, timeout=600)
+        logger.info(f"Successfully generated and cached new response for context_id '{context_id}'.")
+
+        return agent_response_text
+
+    except Exception as e:
+        logger.critical(f"An error occurred during async agent execution for context_id '{context_id}': {e}", exc_info=True)
+        # Ensure a user-friendly error is always returned on failure
+        return "I'm sorry, I encountered an internal error while trying to process your request. Please try again in a moment."

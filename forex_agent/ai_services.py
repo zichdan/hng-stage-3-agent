@@ -29,7 +29,7 @@ try:
     else:
         logger.warning("GEMINI_API_KEY not found in .env file. Gemini services will be unavailable.")
 
-    # This client is for the LangChain agent (still uses OpenAI directly)
+    # Configure the LangChain agent for OpenAI client if the key is present. (Still needed for the agent LLM)
     if openai_api_key:
         openai_client = OpenAI(api_key=openai_api_key, timeout=30.0)
         logger.info("OpenAI client configured successfully.")
@@ -47,13 +47,14 @@ try:
         logger.info("OpenRouter client configured successfully for embeddings.")
     else:
         openrouter_client = None
-        logger.warning("OPENROUTER_API_KEY not found. Embedding services will be unavailable.")
+        logger.warning("OPENROUTER_API_KEY not found in .env file. Embedding services will be unavailable.")
 
 except Exception as e:
     # Catch-all for any unexpected configuration errors.
     logger.critical(f"Fatal error during AI client configuration: {e}", exc_info=True)
     genai = None
     openai_client = None
+    openrouter_client = None
 
 
 # ==============================================================================
@@ -66,7 +67,7 @@ except Exception as e:
 class GeminiContentProcessor:
     """
     A service class to handle content processing tasks (cleaning, summarizing)
-    using the Google Gemini API.
+    and general Q&A using the Google Gemini API.
     """
     def __init__(self, model_name='models/gemini-2.0-flash-001'): # CORRECTED: Using a confirmed available model
         """
@@ -139,11 +140,47 @@ class GeminiContentProcessor:
             logger.error(f"An unexpected error occurred while calling the Gemini API: {e}", exc_info=True)
             return raw_text # Fallback to the original text in case of an API error
 
+    async def get_general_qna_response(self, user_prompt: str, conversation_history: str) -> str:
+        """
+        NEW: A fast, async method for general knowledge questions. This serves as the
+        fallback mechanism when the internal knowledge base has no answer.
+        """
+        if not self.model:
+            logger.error("Cannot get general response because Gemini model is not initialized.")
+            return "I'm sorry, but my connection to my knowledge source is currently unavailable."
+        
+        try:
+            logger.info("Executing fallback: Direct async call to Gemini for general knowledge.")
+            # This prompt is designed for direct, conversational Q&A.
+            prompt = f"""
+            You are 'Forex Compass', a friendly and helpful AI mentor for beginner forex traders.
+            A user is asking a question that is NOT in your specialized knowledge base.
+            Your task is to answer their question from your general knowledge.
+
+            IMPORTANT RULES:
+            1.  **NEVER Give Financial Advice:** You must NEVER predict market movements, suggest trades, or give financial advice.
+            2.  **Safety First:** If the question is close to financial advice, you MUST politely decline and state: 'Disclaimer: I am an AI assistant and cannot provide financial advice. My purpose is purely educational.'
+            3.  **Be Helpful:** For all other questions (greetings, math, general knowledge), be friendly and answer directly.
+
+            CONVERSATION HISTORY:
+            {conversation_history}
+            ---
+            CURRENT USER QUESTION:
+            {user_prompt}
+            """
+            # Use the async version of the generate_content method for a fast response.
+            response = await self.model.generate_content_async(prompt)
+            return response.text
+        except Exception as e:
+            logger.error(f"An unexpected error occurred during the Gemini fallback call: {e}", exc_info=True)
+            return "I apologize, but I encountered an error while trying to answer your question from my general knowledge."
+
+
+
 # ==============================================================================
-# REFACTORED SERVICE CLASS: EmbeddingGenerator (Using Google AI)
+# SERVICE CLASS: EmbeddingGenerator (Using OpenRouter)
 # ==============================================================================
-# This class now uses the Google Generative AI SDK for creating embeddings,
-# removing the dependency on OpenAI for this step and solving the quota issue.
+# This class uses the OpenRouter client to avoid quota issues with direct API providers.
 # ==============================================================================
 
 class EmbeddingGenerator:
@@ -168,7 +205,7 @@ class EmbeddingGenerator:
 
         try:
             # The `embeddings` function is the equivalent of OpenAI's `embeddings.create`.
-            # The model sentence-transformers/all-minilm-l6-v2" is a standard, high-quality text embedding model.
+            # The model "openai/text-embedding-ada-002" is a standard, high-quality text embedding model.
             text_to_embed = text.replace("\n", " ")
             
             logger.debug(f"Requesting embedding from OpenRouter for text snippet (length: {len(text_to_embed)})...")

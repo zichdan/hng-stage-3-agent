@@ -1,13 +1,15 @@
 # a2a_protocol/views.py
 import logging
 import uuid
+from datetime import datetime
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from bs4 import BeautifulSoup # For cleaning HTML tags
 
-# Import the serializer for validation and the Celery task to be dispatched.
+# Import the serializer and the updated agent logic
 from .serializers import JSONRPCRequestSerializer
-from forex_agent.tasks import process_user_query # Correctly import the task
+from forex_agent.agent import get_agent_response_async
 
 # Get a logger instance for this module
 logger = logging.getLogger('a2a_protocol')
@@ -15,77 +17,115 @@ logger = logging.getLogger('a2a_protocol')
 # ==============================================================================
 # A2A ENDPOINT VIEW
 # ==============================================================================
-# This single, generic view is the entry point for all A2A agents.
-# It uses the URL to determine which agent's task to dispatch, making the
-# system highly extensible for future agents (e.g., 'fashion-stylist').
+# This view now handles the request, runs the agent, and returns the
+# final response directly, all in one "blocking" call, while correctly
+# parsing the new A2A message structure.
 # ==============================================================================
 
 class A2AEndpointView(APIView):
     """
-    The main API endpoint that receives and dispatches A2A protocol requests.
+    The main API endpoint that receives, processes, and returns
+    A2A protocol requests in a single, blocking call.
     """
-    def post(self, request, agent_name: str):
+    
+    # Make the post method asynchronous
+    async def post(self, request, agent_name: str):
         """
         Handles incoming POST requests from platforms like Telex.im.
+        This method will now block until the agent has a response.
         """
         logger.info(f"Received A2A request for agent: '{agent_name}'")
+        logger.debug(f"Request Body: {request.data}")
 
-        # --- Step 1: Validate the incoming request against our serializer ---
-        # If the data is invalid, DRF's raise_exception=True handles it,
-        # which our custom exception handler formats into a clean 400 Bad Request.
+        # --- Step 1: Validate the incoming request ---
         serializer = JSONRPCRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except Exception as validation_error:
+            logger.warning(f"Invalid A2A request: {validation_error}")
+            return Response({
+                "jsonrpc": "2.0",
+                "id": request.data.get('id'),
+                "error": { "code": -32602, "message": "Invalid params", "data": serializer.errors }
+            }, status=status.HTTP_400_BAD_REQUEST)
         
-        # If validation passes, we can safely access the data.
         validated_data = serializer.validated_data
         params = validated_data['params']
         
+        # --- Step 2: Extract User Prompt and History from Parts Array (NEW LOGIC) ---
+        user_prompt = None
+        chat_history_from_request = []
         try:
-            user_prompt = params['message']['parts'][0]['text']
-        except (KeyError, IndexError):
-            logger.error("Request is valid but is missing the user prompt text.")
-            return Response(
-                {"error": "Invalid Message Structure", "details": "The 'message.parts' array must contain at least one text part."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            parts = params['message']['parts']
 
-        # --- Step 2: Prepare a dictionary of all necessary details for the background task ---
-        # This keeps our Celery task signature clean and makes it easy to pass more data in the future.
-        task_details = {
-            "request_id": validated_data['id'],
-            "task_id": params['taskId'],
-            # If a contextId isn't provided for a new conversation, we generate a new UUID.
-            "context_id": params.get('contextId') or str(uuid.uuid4()),
-            "webhook_config": params['configuration']['pushNotificationConfig'],
-            "user_prompt": user_prompt
-        }
+            # The first part is the system-interpreted prompt
+            text_part = next((p for p in parts if p.get('kind') == 'text'), None)
+            if text_part and 'text' in text_part:
+                user_prompt = text_part['text']
+            
+            # The second part contains the conversation history
+            data_part = next((p for p in parts if p.get('kind') == 'data'), None)
+            if data_part and 'data' in data_part:
+                chat_history_from_request = data_part['data']
 
-        # --- Step 3: Route the request to the correct agent's Celery task ---
-        # This simple routing logic makes it easy to add more agents in the future.
+            if user_prompt is None:
+                raise ValueError("No valid 'text' part found for the user prompt.")
+            
+            # Clean potential HTML tags from the prompt, just in case
+            soup = BeautifulSoup(user_prompt, 'html.parser')
+            cleaned_prompt = soup.get_text()
+            if cleaned_prompt != user_prompt:
+                logger.debug(f"Cleaned prompt from '{user_prompt}' to '{cleaned_prompt}'")
+                user_prompt = cleaned_prompt
+            
+        except (KeyError, IndexError, TypeError, ValueError) as e:
+            logger.error(f"Could not extract user prompt or history from parts array: {e}")
+            return Response({
+                "jsonrpc": "2.0",
+                "id": validated_data.get('id'),
+                "error": {"code": -32602, "message": "Invalid params", "data": f"Could not parse message.parts array. Error: {e}"}
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # --- Step 3: Prepare Agent Call ---
+        context_id = params.get('contextId') or str(uuid.uuid4())
+
+        # --- Step 4: Route and Execute Agent Logic ---
         if agent_name == "forex-compass":
-            logger.debug(f"Dispatching task to 'process_user_query' for context_id: {task_details['context_id']}")
-            # The `.delay()` method sends the task to the Celery queue to be processed by a worker.
-            # This is a non-blocking call; it returns immediately.
-            process_user_query.delay(task_details)
-        else:
-            # If the URL contains an unknown agent name, return a 404 Not Found.
-            logger.warning(f"Request received for an unknown agent: '{agent_name}'")
-            return Response({"error": f"Agent '{agent_name}' not found."}, status=status.HTTP_404_NOT_FOUND)
+            logger.debug(f"Executing agent directly for context_id: {context_id} with prompt: '{user_prompt}'")
+            
+            # Await the response from the agent's core logic, now passing the history
+            agent_response_text = await get_agent_response_async(user_prompt, context_id, chat_history_from_request)
+            
+            final_state = "failed" if "I'm sorry, I encountered an internal error" in agent_response_text else "completed"
 
-        # --- Step 4: Immediately Acknowledge the Request ---
-        # We instantly return a 202 Accepted response. This tells Telex.im that we have
-        # received the request and are working on it. This is crucial for a responsive
-        # asynchronous architecture and prevents timeouts on the Telex side.
-        logger.info(f"Successfully dispatched task for request_id: {validated_data['id']}. Returning 202 Accepted.")
-        return Response({
+        else:
+            # Agent not found (No change)
+            logger.warning(f"Request received for an unknown agent: '{agent_name}'")
+            return Response({
+                "jsonrpc": "2.0",
+                "id": validated_data['id'],
+                "error": { "code": -32601, "message": f"Method not found: Agent '{agent_name}' not found." }
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        # --- Step 5: Immediately Return the Final Response ---
+        logger.info(f"Successfully generated direct response for request_id: {validated_data['id']}.")
+        
+        response_payload = {
             "jsonrpc": "2.0",
             "id": validated_data['id'],
             "result": {
                 "id": params['taskId'],
-                "contextId": task_details['context_id'],
+                "contextId": context_id,
                 "status": {
-                    "state": "working",
-                    "message": "Task accepted and is being processed in the background."
-                }
+                    "state": final_state,
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "message": {
+                        "kind": "message", "role": "agent",
+                        "parts": [{"kind": "text", "text": agent_response_text}]
+                    }
+                },
+                "kind": "task"
             }
-        }, status=status.HTTP_202_ACCEPTED)
+        }
+        
+        return Response(response_payload, status=status.HTTP_200_OK)
