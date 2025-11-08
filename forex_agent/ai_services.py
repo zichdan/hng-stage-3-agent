@@ -174,8 +174,9 @@ class EmbeddingGenerator:
             logger.debug(f"Requesting embedding from OpenRouter for text snippet (length: {len(text_to_embed)})...")
             response = openrouter_client.embeddings.create(
                 input=[text_to_embed],
-                # This is a free, high-quality model hosted by OpenRouter. It produces 384 dimensions.
-                model="sentence-transformers/all-minilm-l6-v2"
+                # CORRECTED: Use the official OpenAI model ID as hosted by OpenRouter.
+                # This model produces 1536 dimensions.
+                model="openai/text-embedding-ada-002"
             )
             logger.debug("Successfully received embedding from OpenRouter.")
             return response.data[0].embedding
