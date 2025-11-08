@@ -57,11 +57,10 @@ def create_forex_agent_executor(context_id: str, chat_history_from_request: list
     # Move the heavy import inside the function. This prevents it from running
     # during Django's startup, avoiding the import conflict.
     # ==============================================================================
-    # ==============================================================================
-    # THE FINAL, DEFINITIVE FIX: DEFERRED AND CORRECTED IMPORTS
-    # These import paths are correct for the pinned langchain==0.1.20 version.
-    # ==============================================================================
-    from langchain.agents import AgentExecutor, create_openai_tools_agent
+   # --- THIS IS THE DEFINITIVE, CORRECT IMPORT ---
+    from langchain.agents.agent_executor import AgentExecutor
+    from langchain.agents import create_openai_tools_agent
+    # --- END OF FIX ---
 
     try:
         # --- Initialize the LLM ---
