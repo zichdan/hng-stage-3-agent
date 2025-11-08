@@ -15,11 +15,10 @@ from forex_agent.agent import get_agent_response_async
 logger = logging.getLogger('a2a_protocol')
 
 # ==============================================================================
-# A2A ENDPOINT VIEW
+# A2A ENDPOINT VIEW (ASYNCHRONOUS & BLOCKING)
 # ==============================================================================
-# This view now handles the request, runs the agent, and returns the
-# final response directly, all in one "blocking" call, while correctly
-# parsing the new A2A message structure.
+# This view now correctly handles the full async request-response lifecycle,
+# resolving the 'coroutine was never awaited' error.
 # ==============================================================================
 
 class A2AEndpointView(APIView):
@@ -27,12 +26,38 @@ class A2AEndpointView(APIView):
     The main API endpoint that receives, processes, and returns
     A2A protocol requests in a single, blocking call.
     """
-    
-    # Make the post method asynchronous
+
+    async def dispatch(self, request, *args, **kwargs):
+        """
+        CORRECTED: Overrides the default synchronous dispatch method to correctly
+        handle async POST requests and await the handler.
+        """
+        self.args = args
+        self.kwargs = kwargs
+        request = self.initialize_request(request, *args, **kwargs)
+        self.request = request
+        self.headers = self.default_response_headers
+
+        try:
+            self.initial(request, *args, **kwargs)
+
+            if request.method.lower() in self.http_method_names:
+                handler = getattr(self, request.method.lower(), self.http_method_not_allowed)
+            else:
+                handler = self.http_method_not_allowed
+
+            # This is the critical change: we now AWAIT the async handler.
+            response = await handler(request, *args, **kwargs)
+
+        except Exception as exc:
+            response = self.handle_exception(exc)
+
+        self.response = self.finalize_response(request, response, *args, **kwargs)
+        return self.response
+
     async def post(self, request, agent_name: str):
         """
         Handles incoming POST requests from platforms like Telex.im.
-        This method will now block until the agent has a response.
         """
         logger.info(f"Received A2A request for agent: '{agent_name}'")
         logger.debug(f"Request Body: {request.data}")
@@ -52,7 +77,7 @@ class A2AEndpointView(APIView):
         validated_data = serializer.validated_data
         params = validated_data['params']
         
-        # --- Step 2: Extract User Prompt and History from Parts Array (NEW LOGIC) ---
+        # --- Step 2: Extract User Prompt and History from Parts Array ---
         user_prompt = None
         chat_history_from_request = []
         try:
@@ -104,10 +129,10 @@ class A2AEndpointView(APIView):
             return Response({
                 "jsonrpc": "2.0",
                 "id": validated_data['id'],
-                "error": { "code": -32601, "message": f"Method not found: Agent '{agent_name}' not found." }
+                "error": {"code": -32601, "message": f"Method not found: Agent '{agent_name}' not found."}
             }, status=status.HTTP_404_NOT_FOUND)
 
-        # --- Step 5: Immediately Return the Final Response ---
+        # --- Step 5: Immediately Return the Final, Correctly Formatted Response ---
         logger.info(f"Successfully generated direct response for request_id: {validated_data['id']}.")
         
         response_payload = {
