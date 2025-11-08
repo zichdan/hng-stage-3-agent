@@ -46,9 +46,3 @@ django-cors-headers
 gunicorn
 
 
-sentence-transformers
-torch
-
-
-
-
