@@ -6,6 +6,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from bs4 import BeautifulSoup # For cleaning HTML tags
+from asgiref.sync import sync_to_async
 
 # Import the serializer and the updated agent logic
 from .serializers import JSONRPCRequestSerializer
