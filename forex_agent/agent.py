@@ -1,4 +1,5 @@
 # forex_agent/agent.py
+
 import logging
 from asgiref.sync import sync_to_async
 from django.core.cache import cache
@@ -78,12 +79,13 @@ async def get_agent_response_async(user_prompt: str, context_id: str, chat_histo
         if "CONTEXT_NOT_FOUND" in context:
             # RAG Fail: The tool found nothing. Trigger the general knowledge fallback.
             logger.warning("RAG context not found. Triggering direct AI fallback.")
-            agent_response_text = await ai_processor.get_general_qna_response(user_prompt, history_str)
+            # MODIFICATION: Wrap the async call in sync_to_async for better compatibility
+            agent_response_text = await sync_to_async(ai_processor.get_general_qna_response)(user_prompt, history_str)
         else:
             # RAG Success: The tool found context. Trigger the new refinement method.
             logger.info("RAG context found. Refining context with LLM.")
-            # We need to add `refine_context_with_llm` to ai_services.py
-            agent_response_text = await ai_processor.refine_context_with_llm(user_prompt, context, history_str)
+            # MODIFICATION: Wrap the async call in sync_to_async for better compatibility
+            agent_response_text = await sync_to_async(ai_processor.refine_context_with_llm)(user_prompt, context, history_str)
         
         # --- Step 5: Save and Cache the Final Response ---
         await sync_to_async(ConversationHistory.objects.create)(
