@@ -169,9 +169,9 @@ class ConversationHistoryAdmin(admin.ModelAdmin):
         """Prevent anyone from changing existing history records."""
         return False
 
-    def has_delete_permission(self, request, obj=None):
-        """
-        Prevent deletion of individual records. To delete history, a specific
-        data retention script should be used. This prevents accidental data loss.
-        """
-        return False
+    # def has_delete_permission(self, request, obj=None):
+    #     """
+    #     Prevent deletion of individual records. To delete history, a specific
+    #     data retention script should be used. This prevents accidental data loss.
+    #     """
+    #     return False
