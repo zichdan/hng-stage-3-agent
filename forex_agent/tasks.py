@@ -15,7 +15,6 @@ from django.db import transaction
 from .ai_services import ai_processor, embedding_generator
 # Import all necessary models, including the new RawContent staging model
 from .models import RawContent, ProcessedContent, ConversationHistory
-from .agent import create_forex_agent_executor # Import the agent factory
 
 # Get a logger instance for this module, as configured in settings.py.
 # This allows us to see detailed, app-specific logs during execution.
