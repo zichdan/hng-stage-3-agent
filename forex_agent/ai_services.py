@@ -168,29 +168,31 @@ class GeminiContentProcessor:
             logger.error(f"An unexpected error occurred during the Gemini fallback call: {e}", exc_info=True)
             return "I apologize, but I encountered an error while trying to answer your question from my general knowledge."
 
-    # --- NEW METHOD FOR RAG REFINEMENT ---
+    # --- UPGRADED METHOD FOR RAG REFINEMENT ---
     async def refine_context_with_llm(self, user_prompt: str, context: str, conversation_history: str) -> str:
         """
-        RAG SUCCESS METHOD: Refines the context from the database into a conversational answer.
-        This is used when the RAG search (knowledge_base_search or get_latest_market_news) is successful.
+        RAG SUCCESS METHOD: Intelligently synthesizes context from one or more documents
+        into a single, coherent, and conversational answer.
         """
         if not self.model:
             logger.error("Cannot refine context because Gemini model is not initialized.")
             return "I'm sorry, but my connection to my knowledge source is currently unavailable."
         
         try:
-            logger.info("Executing RAG refinement: Calling Gemini to synthesize context.")
+            logger.info("Executing RAG Synthesis: Calling Gemini to synthesize context.")
+            
+            # This is the new, more robust prompt designed for synthesis.
             prompt = f"""
-            You are 'Forex Compass', a friendly and helpful AI mentor for beginner forex traders.
-            Your internal knowledge base has provided the following context to answer the user's question.
+            You are 'Forex Compass', a friendly and highly intelligent AI mentor for beginner forex traders.
+            Your internal knowledge base has provided you with one or more relevant articles to answer the user's question.
 
-            Your task is to use this context to form a clear, simple, and encouraging answer.
-
-            IMPORTANT RULES:
-            1.  **Base your answer ONLY on the provided context.** Do not add any external information.
-            2.  **NEVER Give Financial Advice:** This is your most important rule.
-            3.  **Be a Mentor:** Keep your tone simple, encouraging, and clear.
-            4.  If the context is just news summaries, present them clearly.
+            Your mission is to perform the following steps:
+            1.  **Analyze and Synthesize:** Carefully read all the provided articles in the 'CONTEXT FROM KNOWLEDGE BASE' section. Find the common themes, key definitions, and essential information related to the user's question.
+            2.  **Formulate a Comprehensive Answer:** Create a single, clear, and easy-to-understand answer. Do NOT just copy-paste from the articles. Your value is in synthesizing the information into a better, more complete explanation. If the articles provide different perspectives, merge them intelligently.
+            3.  **Adhere to Rules:**
+                *   Your entire answer MUST be based ONLY on the information within the provided context. Do not use any external knowledge.
+                *   Your tone should be encouraging, clear, and helpful, like a real mentor.
+                *   ABSOLUTELY NO FINANCIAL ADVICE. Never suggest what to trade or predict market movements.
 
             CONTEXT FROM KNOWLEDGE BASE:
             ---
@@ -201,6 +203,8 @@ class GeminiContentProcessor:
             ---
             CURRENT USER QUESTION:
             {user_prompt}
+
+            Synthesized Answer for a Beginner:
             """
             response = await self.model.generate_content_async(prompt)
             return response.text

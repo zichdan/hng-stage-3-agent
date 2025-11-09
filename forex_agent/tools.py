@@ -3,20 +3,23 @@ import logging
 from .models import ProcessedContent
 from .ai_services import embedding_generator
 from pgvector.django.functions import L2Distance
-# REMOVED: from langchain.tools import tool
 
 # Get a logger instance for this module
 logger = logging.getLogger('forex_agent')
 
+# Define a safe maximum character limit for the context passed to the LLM.
+# This prevents API errors for oversized prompts and is the main fix for the crash.
+# 8000 characters is roughly 2000-2500 tokens, a very safe size for modern models.
+MAX_CONTEXT_CHARACTERS = 8000
+
 # ==============================================================================
-# TOOL 1: KNOWLEDGE BASE SEARCH (RAG)
+# TOOL 1: KNOWLEDGE BASE SEARCH (RAG) - UPGRADED
 # ==============================================================================
-# REMOVED: @tool decorator. This is now a regular Python function.
 def knowledge_base_search(query: str) -> str:
     """
-    Use this function to find information to answer a user's question about forex trading
-    concepts, strategies, or definitions. It performs a semantic vector search on the
-    internal knowledge base.
+    Performs a semantic vector search and intelligently builds a context string
+    from multiple sources, ensuring it doesn't exceed a safe size limit.
+    This is the core fix for the application's instability.
     """
     try:
         logger.info(f"Performing knowledge base vector search for query: '{query}'")
@@ -45,18 +48,50 @@ def knowledge_base_search(query: str) -> str:
             # REVISED: Return a clear, machine-readable signal for the fallback mechanism.
             return "CONTEXT_NOT_FOUND: No specific information was found in the internal knowledge base for this query."
             
-        # --- Step 3: Format the Context for the LLM ---
+        # --- Step 3: Intelligently Build the Context for the LLM (THE CRITICAL FIX) ---
+        # Instead of blindly concatenating, we build the context piece-by-piece,
+        # respecting the character limit to prevent API failures.
+
         # We format the search results into a clean string that will be passed back to the LLM.
         # This gives the LLM the exact information it needs to formulate an accurate answer.
         # Concatenate the content of the found articles into a single context string.
-        context = "Relevant information found in the knowledge base:\n\n"
+
+        context_parts = []
+        current_char_count = 0
+
         for article in similar_articles:
-            context += f"--- Article Title: {article.title} ---\n"
-            # CORRECTED: Standardized field name
-            context += f"{article.processed_content}\n\n"
+            header = f"--- Article Title: {article.title} ---\n"
+            content = article.processed_content
+
+            # Estimate the size of this chunk
+            part_size = len(header) + len(content)
+
+            # If adding this full article exceeds the limit, we might need to truncate or skip.
+            if current_char_count + part_size > MAX_CONTEXT_CHARACTERS:
+                # Calculate remaining space
+                remaining_space = MAX_CONTEXT_CHARACTERS - current_char_count - len(header) - 20 # 20 for '... (truncated)'
+
+                # Only add a truncated version if there's meaningful space left
+                if remaining_space > 100: # Don't add just a tiny sliver of text
+                    truncated_content = content[:remaining_space] + "... (truncated)"
+                    context_parts.append(f"{header}{truncated_content}")
+
+                # We've hit the limit, so we must stop adding more articles.
+                break
+
+            # If it fits, add the full article content
+            context_parts.append(f"{header}{content}")
+            current_char_count += part_size
+
+        if not context_parts:
+            # This would only happen if the very first article is too massive, which is unlikely.
+            logger.warning(f"No articles could be fit into the context window for query: '{query}'")
+            return "CONTEXT_NOT_FOUND: Relevant information was found but was too large to process."
+
+        final_context = "Relevant information found in the knowledge base:\n\n" + "\n\n".join(context_parts)
         
-        logger.info(f"Found {len(similar_articles)} relevant articles for query '{query}'.")
-        return context
+        logger.info(f"Successfully built context from {len(context_parts)} articles for query '{query}'.")
+        return final_context
 
     except Exception as e:
         logger.critical(f"A critical error occurred during vector search: {e}", exc_info=True)
@@ -66,20 +101,14 @@ def knowledge_base_search(query: str) -> str:
 # ==============================================================================
 # TOOL 2: MARKET NEWS RETRIEVAL
 # ==============================================================================
-# REMOVED: @tool decorator. This is now a regular Python function.
 def get_latest_market_news() -> str:
     """
-    Use this function ONLY when a user explicitly asks for the 'latest forex news',
-    'market summary', or 'current market trends'. It retrieves the most recent,
-    pre-summarized news articles directly from the database.
+    Retrieves the most recent, pre-summarized news articles from the database.
     """
     try:
         logger.info("Fetching latest market news from the database.")
         
-        # --- Retrieve the 5 most recent Pre-processed News articles ---
-        # This query is extremely fast because the news has already been fetched,
-        # processed by Gemini, and stored by our scheduled Celery Beat task.
-        # We simply retrieve the top 5 most recent news articles.
+        # This query is extremely fast because the news has already been processed.
         news_items = ProcessedContent.objects.filter(content_type='news').order_by('-published_at')[:5]
         
         if not news_items:

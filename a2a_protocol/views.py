@@ -6,7 +6,6 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from bs4 import BeautifulSoup # For cleaning HTML tags
-from asgiref.sync import async_to_async, async_to_sync
 
 # Import the serializer and the updated agent logic
 from .serializers import JSONRPCRequestSerializer
@@ -119,16 +118,8 @@ class A2AEndpointView(APIView):
         if agent_name == "forex-compass":
             logger.debug(f"Executing agent directly for context_id: {context_id} with prompt: '{user_prompt}'")
             
-             # 3. Use 'async_to_sync' to call the async function from our sync 'post' method
-            try:
-                agent_response_text = async_to_sync(get_agent_response_async)(
-                    user_prompt, context_id, chat_history_from_request
-                )
-            except Exception as agent_error:
-                # Catch errors from the agent itself
-                logger.error(f"Agent execution failed for context_id {context_id}: {agent_error}", exc_info=True)
-                agent_response_text = "I'm sorry, I encountered an internal error. Please try again."
-
+            # Await the response from the agent's core logic, now passing the history
+            agent_response_text = await get_agent_response_async(user_prompt, context_id, chat_history_from_request)
 
             final_state = "failed" if "I'm sorry, I encountered an internal error" in agent_response_text else "completed"
 
