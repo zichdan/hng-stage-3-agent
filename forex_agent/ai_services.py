@@ -84,14 +84,7 @@ class GeminiContentProcessor:
         """
         Sends raw text to Gemini with a robust prompt to clean, reformat, and
         tailor it for a beginner forex trader.
-
-        Args:
-            raw_text (str): The unstructured text from a web scrape or news API.
-            content_type (str): A description of the content (e.g., "news article", "educational guide").
-
-        Returns:
-            str: The AI-processed, clean, and formatted content in Markdown,
-                 or the original text if processing fails.
+        (This method is retained for use by tasks.py)
         """
         if not self.model:
             logger.error("GeminiContentProcessor cannot run because the model is not initialized.")
@@ -142,8 +135,8 @@ class GeminiContentProcessor:
 
     async def get_general_qna_response(self, user_prompt: str, conversation_history: str) -> str:
         """
-        NEW: A fast, async method for general knowledge questions. This serves as the
-        fallback mechanism when the internal knowledge base has no answer.
+        FALLBACK METHOD: This is used when the RAG search finds no context.
+        It answers a question using Gemini's general knowledge.
         """
         if not self.model:
             logger.error("Cannot get general response because Gemini model is not initialized.")
@@ -175,6 +168,45 @@ class GeminiContentProcessor:
             logger.error(f"An unexpected error occurred during the Gemini fallback call: {e}", exc_info=True)
             return "I apologize, but I encountered an error while trying to answer your question from my general knowledge."
 
+    # --- NEW METHOD FOR RAG REFINEMENT ---
+    async def refine_context_with_llm(self, user_prompt: str, context: str, conversation_history: str) -> str:
+        """
+        RAG SUCCESS METHOD: Refines the context from the database into a conversational answer.
+        This is used when the RAG search (knowledge_base_search or get_latest_market_news) is successful.
+        """
+        if not self.model:
+            logger.error("Cannot refine context because Gemini model is not initialized.")
+            return "I'm sorry, but my connection to my knowledge source is currently unavailable."
+        
+        try:
+            logger.info("Executing RAG refinement: Calling Gemini to synthesize context.")
+            prompt = f"""
+            You are 'Forex Compass', a friendly and helpful AI mentor for beginner forex traders.
+            Your internal knowledge base has provided the following context to answer the user's question.
+
+            Your task is to use this context to form a clear, simple, and encouraging answer.
+
+            IMPORTANT RULES:
+            1.  **Base your answer ONLY on the provided context.** Do not add any external information.
+            2.  **NEVER Give Financial Advice:** This is your most important rule.
+            3.  **Be a Mentor:** Keep your tone simple, encouraging, and clear.
+            4.  If the context is just news summaries, present them clearly.
+
+            CONTEXT FROM KNOWLEDGE BASE:
+            ---
+            {context}
+            ---
+            CONVERSATION HISTORY:
+            {conversation_history}
+            ---
+            CURRENT USER QUESTION:
+            {user_prompt}
+            """
+            response = await self.model.generate_content_async(prompt)
+            return response.text
+        except Exception as e:
+            logger.error(f"An unexpected error occurred during Gemini context refinement: {e}", exc_info=True)
+            return "I found some information, but I apologize, I encountered an error while trying to formulate the answer."
 
 
 # ==============================================================================

@@ -19,6 +19,18 @@ django-celery-results
 httpx             # Modern, async-first HTTP client
 gevent
 
+# --- Environment & Utilities ---
+environs
+python-decouple     # For cleanly managing .env variables
+python-dotenv
+
+
+# --- Other Third Part-Packages  ---
+whitenoise
+django-cors-headers
+gunicorn
+
+
 # --- AI & Language Models ---
 openai              # For embeddings and/or chat models
 google-generativeai # For using the Gemini API
@@ -33,16 +45,4 @@ langchain-core
 # --- Web Scraping ---
 beautifulsoup4
 requests          # A fallback/synchronous HTTP client
-
-# --- Environment & Utilities ---
-environs
-python-decouple     # For cleanly managing .env variables
-python-dotenv
-
-
-# --- Other Third Part-Packages  ---
-whitenoise
-django-cors-headers
-gunicorn
-
 

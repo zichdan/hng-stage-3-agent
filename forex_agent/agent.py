@@ -1,130 +1,35 @@
 # forex_agent/agent.py
 import logging
-from decouple import config
-from langchain_openai import ChatOpenAI
-
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.messages import AIMessage, HumanMessage
 from asgiref.sync import sync_to_async
 from django.core.cache import cache
+# REVISED: We only import the core message types, no agent framework.
+from langchain_core.messages import AIMessage, HumanMessage
 
 from .models import ConversationHistory
+# REVISED: We import the tools as regular Python functions.
 from .tools import knowledge_base_search, get_latest_market_news
-from .ai_services import ai_processor  # Import for the fallback mechanism
+from .ai_services import ai_processor  # Import for the fallback and refinement mechanism
 
 # Get a logger instance for this module, as configured in settings.py
 logger = logging.getLogger('forex_agent')
 
 # ==============================================================================
-# AGENT DEFINITION
+# REMOVED: AGENT DEFINITION
+# We no longer use the LangChain PROMPT, llm, or create_forex_agent_executor.
+# This entirely removes the source of the ModuleNotFoundError.
 # ==============================================================================
-# This is the core logic that defines the agent's persona, its capabilities (tools),
-# and how it processes user requests. We use LangChain to orchestrate this.
-# ==============================================================================
-
-# --- The Agent's "Constitution" or System Prompt ---
-# REVISED: The prompt is updated to explicitly handle the "CONTEXT_NOT_FOUND"
-# signal, enabling a more reliable general-purpose AI fallback.
-PROMPT = ChatPromptTemplate.from_messages([
-    ("system", """You are 'Forex Compass', a friendly, patient, and highly knowledgeable AI mentor for beginner forex traders.
-
-    Your primary goal is to provide safe, educational, and motivational advice. You must adhere to the following rules at all times:
-
-    1.  **NEVER Give Financial Advice:** This is your most important rule. You must NEVER predict market movements, suggest specific trades (e.g., "should I buy EUR/USD?"), or give any form of financial advice.
-    2.  **Safety First:** If a user's question is close to financial advice, you MUST politely decline and explicitly state: 'Disclaimer: I am an AI assistant and cannot provide financial advice. My purpose is purely educational. Please consult a qualified financial professional for investment advice.'
-    3.  **Use Your Tools First:** You have two tools: `knowledge_base_search` (for forex concepts) and `get_latest_market_news` (for news). You should ALWAYS prefer to use these tools to answer questions related to forex or market news.
-    4.  **How to Answer (Your Hybrid Logic):**
-        * **If a tool finds information (RAG success):** Base your final answer *primarily* on the information provided by the tool. Your job is to rephrase this context into a simple, encouraging, and clear answer.
-        * **If a tool returns 'CONTEXT_NOT_FOUND' (RAG fail):** This is a special signal. Your final answer must ONLY contain the exact phrase 'FALLBACK_TO_GENERAL_KNOWLEDGE'. Do not add any other words or pleasantries. This signal will trigger a different part of the system to take over.
-    5.  **Be a Mentor:** Keep your tone simple, encouraging, and clear.
-    6.  **Small Talk:** For simple greetings or non-forex questions (like "hello", "how are you", "what is 2+2"), you MUST also output *only* the exact phrase: `FALLBACK_TO_GENERAL_KNOWLEDGE`.
-    7.  **Use History:** Refer to the conversation history to understand the flow and provide relevant follow-up answers."""),
-    
-    # `MessagesPlaceholder` allows us to inject the conversation history.
-    MessagesPlaceholder(variable_name="chat_history"),
-    # The user's current input.
-    ("human", "{input}"),
-    # `agent_scratchpad` is where the agent does its "thinking" about which tool to call.
-    MessagesPlaceholder(variable_name="agent_scratchpad"),
-])
-
-def create_forex_agent_executor(context_id: str, chat_history_from_request: list):
-    """
-    Creates and configures the LangChain agent executor for a given conversation.
-    """
-    # ==============================================================================
-    # THE FIX: DEFERRED IMPORT
-    # Move the heavy import inside the function. This prevents it from running
-    # during Django's startup, avoiding the import conflict.
-    # ==============================================================================
-   # --- THIS IS THE DEFINITIVE, CORRECT IMPORT ---
-    from langchain.agents.agent_executor import AgentExecutor
-    from langchain.agents import create_openai_tools_agent
-    # --- END OF FIX ---
-
-    try:
-        # --- Initialize the LLM ---
-        # We use a powerful model like GPT-4o, which is excellent at tool usage.
-        # Temperature is set low to make the agent more factual and less creative.
-        llm = ChatOpenAI(
-            model="gpt-4o", # A powerful and fast model for this task
-            temperature=0.3, # Lower temperature for more factual, less creative answers
-            openai_api_key=config("OPENAI_API_KEY")
-        )
-
-        # --- Define the Tools ---
-        # These are the functions the agent is allowed to call.
-        tools = [knowledge_base_search, get_latest_market_news]
-        
-        # --- Create the Agent ---
-        # `create_openai_tools_agent` binds the LLM, tools, and prompt together into a runnable agent.
-        agent = create_openai_tools_agent(llm, tools, PROMPT)
-        
-        # --- Create the Agent Executor ---
-        # The executor is the runtime that actually calls the agent, executes the tools,
-        # and returns the final response. `verbose=True` is invaluable for debugging.
-        agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
-
-        # --- Load Chat History ---
-        # Prioritize history from the request if available, otherwise use database.
-        if chat_history_from_request:
-            chat_history = []
-            # The data is a list of dicts, convert to LangChain message objects
-            for msg in chat_history_from_request:
-                # Simple cleaning of HTML tags
-                text = msg.get('text', '').replace('<p>', '').replace('</p>', '')
-                # Assuming the history alternates user/agent
-                if len(chat_history) % 2 == 0:
-                     chat_history.append(HumanMessage(content=text))
-                else:
-                     chat_history.append(AIMessage(content=text))
-            logger.info(f"Loaded {len(chat_history)} messages from request data for context_id '{context_id}'.")
-
-        else:
-            # Fallback to database history if the request format changes
-            history_records = ConversationHistory.objects.filter(context_id=context_id).order_by('-timestamp')[:5]
-            chat_history = []
-            for record in reversed(history_records):
-                chat_history.append(HumanMessage(content=record.user_message))
-                chat_history.append(AIMessage(content=record.agent_message))
-            logger.info(f"Loaded {len(chat_history) // 2} interactions from database for context_id '{context_id}'.")
-        
-        logger.info(f"Created agent executor for context_id '{context_id}' with {len(chat_history) // 2} previous interactions.")
-        return agent_executor, chat_history
-
-    except Exception as e:
-        logger.critical(f"Failed to create agent executor for context_id '{context_id}': {e}", exc_info=True)
-        return None, []
 
 
 # ==============================================================================
-# ASYNCHRONOUS AGENT EXECUTION LOGIC WITH FALLBACK
+# NEW ARCHITECTURE: EXPLICIT AGENT LOGIC
 # ==============================================================================
-# This function orchestrates the full logic: RAG-first, with a direct AI fallback.
+# This function is now the complete "brain" of the agent. It replaces the
+# LangChain agent executor with a clear, explicit, and dependency-free logic flow.
 
 async def get_agent_response_async(user_prompt: str, context_id: str, chat_history_from_request: list) -> str:
     """
-    Handles a single user query asynchronously, with a fallback to general AI.
+    Handles a single user query asynchronously with a RAG-first, fallback-second approach.
+    This new logic does not use the LangChain agent framework.
     """
     try:
         # --- Step 1: Check Redis Cache (Asynchronously) ---
@@ -139,32 +44,48 @@ async def get_agent_response_async(user_prompt: str, context_id: str, chat_histo
             )
             return cached_response
 
-        logger.info("Cache miss. Proceeding with live agent execution.")
+        logger.info("Cache miss. Proceeding with custom agent execution.")
         
-        # --- Step 2: Create and Run the RAG-based LangChain Agent ---
-        agent_executor, chat_history = await sync_to_async(create_forex_agent_executor)(context_id, chat_history_from_request)
-        if not agent_executor:
-            raise Exception("Agent executor could not be created.")
-            
-        result = await sync_to_async(agent_executor.invoke)({
-            "input": user_prompt,
-            "chat_history": chat_history
-        })
-        agent_response_text = result['output']
+        # --- Step 2: Explicit Tool Routing ---
+        # A simple, reliable Python 'if' statement to decide which tool to use.
+        # This is faster and more predictable than an LLM call.
+        prompt_lower = user_prompt.lower()
+        context = ""
+        if any(keyword in prompt_lower for keyword in ['news', 'market update', 'latest', 'trends', 'market summary']):
+            logger.info(f"User query '{user_prompt}' contains news keywords. Routing to news tool.")
+            context = await sync_to_async(get_latest_market_news)()
+        else:
+            logger.info(f"Routing user query '{user_prompt}' to knowledge base search.")
+            context = await sync_to_async(knowledge_base_search)(user_prompt)
 
-        # --- Step 3: Implement the Fallback Mechanism ---
-        if "CONTEXT_NOT_FOUND" in agent_response_text or "FALLBACK_TO_GENERAL_KNOWLEDGE" in agent_response_text:
-            logger.warning("Knowledge base search failed. Triggering direct AI fallback.")
-            
-            # Format history for the fallback prompt
-            history_str = "\n".join([f"{'User' if isinstance(m, HumanMessage) else 'You'}: {m.content}" for m in chat_history])
-            
-            # Call the new, fast, async Q&A method from ai_services
-            # We pass the original chat_history for context
-            fallback_response = await ai_processor.get_general_qna_response(user_prompt, history_str)
-            agent_response_text = fallback_response
+        # --- Step 3: Load and Format History ---
+        # We still need history for context in both success and fallback scenarios.
+        chat_history = []
+        if chat_history_from_request:
+            for msg in chat_history_from_request:
+                text = msg.get('text', '').replace('<p>', '').replace('</p>', '')
+                # Assuming the history alternates user/agent
+                if len(chat_history) % 2 == 0:
+                    chat_history.append(HumanMessage(content=text))
+                else:
+                    chat_history.append(AIMessage(content=text))
+
+        history_str = "\n".join([f"{'User' if isinstance(m, HumanMessage) else 'You'}: {m.content}" for m in chat_history])
+
+        # --- Step 4: Hybrid Logic - RAG or Fallback ---
+        # This is the core of the new architecture. We check the 'signal' from our tools.
+        agent_response_text = ""
+        if "CONTEXT_NOT_FOUND" in context:
+            # RAG Fail: The tool found nothing. Trigger the general knowledge fallback.
+            logger.warning("RAG context not found. Triggering direct AI fallback.")
+            agent_response_text = await ai_processor.get_general_qna_response(user_prompt, history_str)
+        else:
+            # RAG Success: The tool found context. Trigger the new refinement method.
+            logger.info("RAG context found. Refining context with LLM.")
+            # We need to add `refine_context_with_llm` to ai_services.py
+            agent_response_text = await ai_processor.refine_context_with_llm(user_prompt, context, history_str)
         
-        # --- Step 4: Save and Cache the Final Response ---
+        # --- Step 5: Save and Cache the Final Response ---
         await sync_to_async(ConversationHistory.objects.create)(
             context_id=context_id,
             user_message=user_prompt,
