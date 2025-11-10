@@ -1,4 +1,5 @@
 # core/urls.py
+
 from django.contrib import admin
 from django.urls import path, include
 from .views import health_check
@@ -7,6 +8,15 @@ from .views import health_check
 from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
+
+# ==============================================================================
+# THE FIX: Define your API URL patterns in a separate list.
+# ==============================================================================
+# This tells drf-yasg exactly which patterns to generate documentation for.
+api_urlpatterns = [
+    path('api/v1/a2a/', include('direct_agent.urls')),
+]
+# ==============================================================================
 
 # This sets up the metadata for your API documentation
 schema_view = get_schema_view(
@@ -19,6 +29,7 @@ schema_view = get_schema_view(
    ),
    public=True,
    permission_classes=(permissions.AllowAny,),
+   patterns=api_urlpatterns,  # <--- THE FIX: Explicitly pass the API patterns here.
 )
 
 urlpatterns = [
@@ -28,13 +39,9 @@ urlpatterns = [
     # --- Health Check Endpoint ---
     path('kaithhealthcheck/', health_check, name='health_check'),
     
-    # --- Core Application API ---
-    path('api/v1/a2a/', include('direct_agent.urls')),
-   #  path('api/v1/direct/', include('direct_agent.urls')),
-   #  path('api/v1/a2a/', include('a2a_protocol.urls')),
-
     # --- API Documentation ---
-    # This path makes the Swagger UI available at the root of your site
+    # These URLs now serve the documentation generated ONLY from `api_urlpatterns`.
     path('', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
     path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
-]
+    
+] + api_urlpatterns # <--- THE FIX: Add the API patterns to the main urlpatterns so they are live.
