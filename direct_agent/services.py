@@ -18,8 +18,13 @@ logger = logging.getLogger('direct_agent')
 # Fetch the API key securely.
 GEMINI_API_KEY = config('GEMINI_API_KEY', default=None)
 
+# --- THE FIX: Use a valid model name confirmed by your check_models.py script ---
+# This is the primary solution to the 404 error.
+VALID_GEMINI_MODEL = "gemini-2.0-flash-001" 
+
 # Define the API endpoint at the module level for clarity and ease of maintenance.
-GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GEMINI_API_KEY}"
+# GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GEMINI_API_KEY}"
+GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{VALID_GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
 
 # --- Production-Ready Timeout Configuration ---
 # A generous timeout is crucial for generative AI calls.
