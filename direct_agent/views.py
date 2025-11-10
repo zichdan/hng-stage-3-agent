@@ -29,12 +29,12 @@ from .services import get_gemini_direct_response
 logger = logging.getLogger('direct_agent')
 
 # ==============================================================================
-# FINAL, SIMPLIFIED IMPLEMENTATION: Always treat requests as blocking
+# FINAL, A2A-COMPLIANT IMPLEMENTATION
 # ==============================================================================
 class A2ADirectEndpointView(APIView):
     """
-    A simplified, robust APIView that handles all A2A requests in a blocking
-    fashion to ensure an immediate response is always sent back.
+    An A2A-compliant APIView that handles all requests in a blocking fashion
+    and formats the response according to the A2A Task object specification.
     """
 
     # This is the correct way to make a DRF APIView handle async logic.
@@ -77,7 +77,7 @@ class A2ADirectEndpointView(APIView):
     async def post(self, request, agent_name: str):
         """
         Handles a POST request, validates it, calls the Gemini service,
-        persists the interaction, and returns a formatted response directly.
+        persists the interaction, and returns a fully A2A-compliant response.
         """
         request_id = "N/A"
         try:
@@ -125,6 +125,7 @@ class A2ADirectEndpointView(APIView):
 
             # --- Step 3: Prepare Agent Call ---
             context_id = params.get('contextId') or str(uuid.uuid4())
+            task_id = params.get('taskId', str(uuid.uuid4()))
 
             # --- Step 4: Route and Execute Agent Logic ---
             if agent_name == "forex-compass":
@@ -145,16 +146,45 @@ class A2ADirectEndpointView(APIView):
             except Exception as db_error:
                 logger.error(f"Request ID '{request_id}': Failed to save conversation history. DB Error: {db_error}", exc_info=True)
 
-            # --- Step 6: Return the Final, Formatted Response ---
-            logger.info(f"Request ID '{request_id}': Successfully generated and returning direct response.")
+            # ======================================================================
+            # THE FINAL FIX: Construct a fully A2A-compliant response object
+            # ======================================================================
+            logger.info(f"Request ID '{request_id}': Successfully generated and returning A2A-compliant direct response.")
+            
             response_payload = {
-                "jsonrpc": "2.0", "id": validated_data['id'],
+                "jsonrpc": "2.0",
+                "id": validated_data['id'],
                 "result": {
-                    "id": params.get('taskId', str(uuid.uuid4())), "contextId": context_id,
+                    "id": task_id,
+                    "contextId": context_id,
                     "status": {
-                        "state": final_state, "timestamp": datetime.utcnow().isoformat() + "Z",
-                        "message": {"kind": "message", "role": "agent", "parts": [{"kind": "text", "text": agent_response_text}]}
+                        "state": final_state,
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "message": {
+                            "messageId": str(uuid.uuid4()),
+                            "role": "agent",
+                            "parts": [
+                                {
+                                    "kind": "text",
+                                    "text": "Here is the information you requested." # A concise status message
+                                }
+                            ],
+                            "kind": "message"
+                        }
                     },
+                    "artifacts": [
+                        {
+                            "artifactId": str(uuid.uuid4()),
+                            "name": "agentResponse",
+                            "parts": [
+                                {
+                                    "kind": "text",
+                                    "text": agent_response_text # The full, detailed AI response
+                                }
+                            ]
+                        }
+                    ],
+                    "history": [], # You can optionally populate this if needed
                     "kind": "task"
                 }
             }
