@@ -27,6 +27,10 @@ class A2AMessageSerializer(serializers.Serializer):
     """Validates the main message object."""
     role = serializers.ChoiceField(choices=["user"])
     parts = MessagePartSerializer(many=True, min_length=1)
+    # Adding metadata field as observed in the Telex request
+    metadata = serializers.JSONField(required=False)
+    messageId = serializers.CharField(required=False, allow_blank=True)
+
 
 class PushNotificationConfigSerializer(serializers.Serializer):
     """
@@ -35,21 +39,26 @@ class PushNotificationConfigSerializer(serializers.Serializer):
     """
     url = serializers.URLField()
     token = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    # Adding authentication field as observed in the Telex request
+    authentication = serializers.JSONField(required=False)
 
 class MessageConfigurationSerializer(serializers.Serializer):
     """Validates the overall message configuration."""
     # REVISED: 'blocking' can now be true or false.
-    blocking = serializers.BooleanField(default=True)
+    blocking = serializers.BooleanField(default=False)
     # The pushNotificationConfig is now optional.
     pushNotificationConfig = PushNotificationConfigSerializer(required=False, allow_null=True)
+    # Adding other fields observed in the Telex request
+    acceptedOutputModes = serializers.ListField(child=serializers.CharField(), required=False)
+    historyLength = serializers.IntegerField(required=False)
 
 class MessageParamsSerializer(serializers.Serializer):
     """Validates the 'params' block for a 'message/send' request."""
     message = A2AMessageSerializer()
     configuration = MessageConfigurationSerializer()
     
-    # These are crucial for tracking the request and conversation state.
-    taskId = serializers.CharField() # The unique ID for this specific task
+    # THE FINAL FIX: The taskId is not always sent by Telex, so it must be optional.
+    taskId = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     contextId = serializers.CharField(required=False, allow_null=True, allow_blank=True)
 
 
