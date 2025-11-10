@@ -83,6 +83,7 @@ INSTALLED_APPS = [
     # Local Apps
     'a2a_protocol',
     'forex_agent',
+    'direct_agent',
 ]
 
 MIDDLEWARE = [
@@ -334,6 +335,12 @@ LOGGING = {
             'propagate': False,
         },
         'a2a_protocol': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        # core/settings.py -> LOGGING['loggers']
+        'direct_agent': {
             'handlers': ['console'],
             'level': 'DEBUG',
             'propagate': False,

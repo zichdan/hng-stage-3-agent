@@ -29,7 +29,8 @@ urlpatterns = [
     path('kaithhealthcheck/', health_check, name='health_check'),
     
     # --- Core Application API ---
-    path('api/v1/a2a/', include('a2a_protocol.urls')),
+   #  path('api/v1/a2a/', include('a2a_protocol.urls')),
+    path('api/v1/direct/', include('direct_agent.urls')),
 
     # --- API Documentation ---
     # This path makes the Swagger UI available at the root of your site
