@@ -148,7 +148,8 @@ class A2ADirectEndpointView(APIView):
             response_payload = {
                 "jsonrpc": "2.0", "id": validated_data['id'],
                 "result": {
-                    "id": params['taskId'], "contextId": context_id,
+                    # THE FINAL FIX: Use .get() for safe access to the optional taskId
+                    "id": params.get('taskId', str(uuid.uuid4())), "contextId": context_id,
                     "status": {
                         "state": final_state, "timestamp": datetime.utcnow().isoformat() + "Z",
                         "message": {"kind": "message", "role": "agent", "parts": [{"kind": "text", "text": agent_response_text}]}
