@@ -37,7 +37,7 @@ class PushNotificationConfigSerializer(serializers.Serializer):
     Validates the webhook configuration. The URL is the most critical part,
     as it tells our agent where to send the final response.
     """
-    url = serializers.URLField()
+    url = serializers.URLField(required=False, allow_blank=True, allow_null=True)
     token = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     # Adding authentication field as observed in the Telex request
     authentication = serializers.JSONField(required=False)
@@ -45,7 +45,7 @@ class PushNotificationConfigSerializer(serializers.Serializer):
 class MessageConfigurationSerializer(serializers.Serializer):
     """Validates the overall message configuration."""
     # REVISED: 'blocking' can now be true or false.
-    blocking = serializers.BooleanField(default=False)
+    blocking = serializers.BooleanField(required=False, default=True)
     # The pushNotificationConfig is now optional.
     pushNotificationConfig = PushNotificationConfigSerializer(required=False, allow_null=True)
     # Adding other fields observed in the Telex request
@@ -55,7 +55,7 @@ class MessageConfigurationSerializer(serializers.Serializer):
 class MessageParamsSerializer(serializers.Serializer):
     """Validates the 'params' block for a 'message/send' request."""
     message = A2AMessageSerializer()
-    configuration = MessageConfigurationSerializer()
+    configuration = MessageConfigurationSerializer(required=False)
     
     # THE FINAL FIX: The taskId is not always sent by Telex, so it must be optional.
     taskId = serializers.CharField(required=False, allow_blank=True, allow_null=True)

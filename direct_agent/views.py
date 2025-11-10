@@ -29,12 +29,12 @@ from .services import get_gemini_direct_response
 logger = logging.getLogger('direct_agent')
 
 # ==============================================================================
-# FINAL, A2A-COMPLIANT IMPLEMENTATION: DRF APIView with correct async handling
+# FINAL, SIMPLIFIED IMPLEMENTATION: Always treat requests as blocking
 # ==============================================================================
 class A2ADirectEndpointView(APIView):
     """
-    An A2A-compliant APIView that correctly handles both blocking (synchronous)
-    and non-blocking (asynchronous webhook) requests.
+    A simplified, robust APIView that handles all A2A requests in a blocking
+    fashion to ensure an immediate response is always sent back.
     """
 
     # This is the correct way to make a DRF APIView handle async logic.
@@ -61,70 +61,6 @@ class A2ADirectEndpointView(APIView):
         self.response = self.finalize_response(request, response, *args, **kwargs)
         return self.response
 
-    # This async background task will do the actual work for non-blocking requests.
-    async def process_non_blocking_task(self, params, user_prompt, chat_history_from_request, context_id, request_id):
-        """
-        Runs the core agent logic and sends the result to the Telex webhook.
-        """
-        logger.info(f"Request ID '{request_id}': Starting background processing for non-blocking task.")
-
-        try:
-            # --- Step 1: Execute Agent Logic ---
-            agent_response_text = await get_gemini_direct_response(user_prompt, chat_history_from_request)
-            final_state = "failed" if "I'm sorry, I encountered" in agent_response_text else "completed"
-
-            # --- Step 2: Persist History (Safely) ---
-            try:
-                await sync_to_async(ConversationHistory.objects.create)(
-                    context_id=context_id, user_message=user_prompt, agent_message=agent_response_text
-                )
-                logger.info(f"Request ID '{request_id}': Successfully saved history in background.")
-            except Exception as db_error:
-                logger.error(f"Request ID '{request_id}': Failed to save history in background. DB Error: {db_error}", exc_info=True)
-
-            # --- Step 3: Prepare the Final Payload for the Webhook ---
-            webhook_payload = {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "result": {
-                    "id": params.get('taskId', str(uuid.uuid4())),
-                    "contextId": context_id,
-                    "status": {
-                        "state": final_state,
-                        "timestamp": datetime.utcnow().isoformat() + "Z",
-                        "message": {
-                            "kind": "message",
-                            "role": "agent",
-                            "parts": [{"kind": "text", "text": agent_response_text}]
-                        }
-                    },
-                    "kind": "task"
-                }
-            }
-
-            # --- Step 4: Send the Result to the Webhook URL ---
-            push_config = params.get('configuration', {}).get('pushNotificationConfig', {})
-            webhook_url = push_config.get('url')
-            token = push_config.get('token')
-
-            if not webhook_url:
-                logger.error(f"Request ID '{request_id}': Non-blocking request received but no 'pushNotificationConfig.url' was provided. Cannot send response.")
-                return
-
-            headers = {'Content-Type': 'application/json'}
-            if token:
-                headers['Authorization'] = f'Bearer {token}'
-
-            logger.info(f"Request ID '{request_id}': Sending final response to webhook: {webhook_url}")
-            async with httpx.AsyncClient() as client:
-                response = await client.post(webhook_url, json=webhook_payload, headers=headers)
-                response.raise_for_status() # Raise an exception for bad status codes
-            logger.info(f"Request ID '{request_id}': Successfully sent webhook response. Status: {response.status_code}")
-
-        except Exception as e:
-            logger.critical(f"Request ID '{request_id}': An unhandled exception occurred during background task processing: {e}", exc_info=True)
-            # Optionally, you could try to send an error back to the webhook here if you have enough context.
-
     @swagger_auto_schema(
         operation_summary="Send a message to an AI Agent (Direct)",
         operation_description="This endpoint is the primary communication channel for interacting with an AI agent using the A2A (Agent-to-Agent) protocol. It accepts a standard JSON-RPC 2.0 request.",
@@ -132,17 +68,16 @@ class A2ADirectEndpointView(APIView):
         request_body=JSONRPCRequestSerializer,
         responses={
             200: openapi.Response(
-                description="Successful AI agent response (for blocking requests).",
+                description="Successful AI agent response.",
                 examples={"application/json": {"jsonrpc": "2.0", "id": "req-123", "result": {"id": "task-123", "status": {"state": "completed"}}}}
             ),
-            202: "Accepted (for non-blocking requests).",
             400: "Bad Request", 404: "Not Found", 500: "Internal Server Error"
         }
     )
     async def post(self, request, agent_name: str):
         """
-        Handles a POST request, validates it, and then either responds directly (blocking)
-        or acknowledges and processes in the background (non-blocking) per the A2A protocol.
+        Handles a POST request, validates it, calls the Gemini service,
+        persists the interaction, and returns a formatted response directly.
         """
         request_id = "N/A"
         try:
@@ -191,56 +126,39 @@ class A2ADirectEndpointView(APIView):
             # --- Step 3: Prepare Agent Call ---
             context_id = params.get('contextId') or str(uuid.uuid4())
 
-            # --- Step 4: Check Blocking Mode and Route Accordingly ---
-            is_blocking = params.get('configuration', {}).get('blocking', True)
-
-            if is_blocking:
-                # --- BLOCKING FLOW (e.g., for Postman tests) ---
-                logger.info(f"Request ID '{request_id}': Handling as a BLOCKING request.")
-
-                if agent_name == "forex-compass":
-                    logger.debug(f"Request ID '{request_id}': Executing direct agent for context_id: {context_id}...")
-                    agent_response_text = await get_gemini_direct_response(user_prompt, chat_history_from_request)
-                    final_state = "failed" if "I'm sorry, I encountered" in agent_response_text else "completed"
-                else:
-                    logger.warning(f"Request ID '{request_id}': Request received for an unknown agent: '{agent_name}'")
-                    error_payload = {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32601, "message": f"Method not found: Agent '{agent_name}' not found."}}
-                    return Response(error_payload, status=status.HTTP_404_NOT_FOUND)
-
-                # --- Step 5 (Blocking): Persist History Safely ---
-                try:
-                    await sync_to_async(ConversationHistory.objects.create)(
-                        context_id=context_id, user_message=user_prompt, agent_message=agent_response_text
-                    )
-                    logger.info(f"Request ID '{request_id}': Successfully saved conversation history for context_id '{context_id}'.")
-                except Exception as db_error:
-                    logger.error(f"Request ID '{request_id}': Failed to save conversation history. DB Error: {db_error}", exc_info=True)
-
-                # --- Step 6 (Blocking): Return the Final, Formatted Response ---
-                logger.info(f"Request ID '{request_id}': Successfully generated and returning direct response.")
-                response_payload = {
-                    "jsonrpc": "2.0", "id": validated_data['id'],
-                    "result": {
-                        "id": params.get('taskId', str(uuid.uuid4())), "contextId": context_id,
-                        "status": {
-                            "state": final_state, "timestamp": datetime.utcnow().isoformat() + "Z",
-                            "message": {"kind": "message", "role": "agent", "parts": [{"kind": "text", "text": agent_response_text}]}
-                        },
-                        "kind": "task"
-                    }
-                }
-                return Response(response_payload, status=status.HTTP_200_OK)
-
+            # --- Step 4: Route and Execute Agent Logic ---
+            if agent_name == "forex-compass":
+                logger.debug(f"Request ID '{request_id}': Executing direct agent for context_id: {context_id}...")
+                agent_response_text = await get_gemini_direct_response(user_prompt, chat_history_from_request)
+                final_state = "failed" if "I'm sorry, I encountered" in agent_response_text else "completed"
             else:
-                # --- NON-BLOCKING FLOW (for Telex) ---
-                logger.info(f"Request ID '{request_id}': Handling as a NON-BLOCKING request. Scheduling background task.")
+                logger.warning(f"Request ID '{request_id}': Request received for an unknown agent: '{agent_name}'")
+                error_payload = {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32601, "message": f"Method not found: Agent '{agent_name}' not found."}}
+                return Response(error_payload, status=status.HTTP_404_NOT_FOUND)
 
-                # Create a background task to do the actual work. Do NOT await it.
-                asyncio.create_task(self.process_non_blocking_task(params, user_prompt, chat_history_from_request, context_id, request_id))
+            # --- Step 5: Persist Conversation History (Safely) ---
+            try:
+                await sync_to_async(ConversationHistory.objects.create)(
+                    context_id=context_id, user_message=user_prompt, agent_message=agent_response_text
+                )
+                logger.info(f"Request ID '{request_id}': Successfully saved conversation history for context_id '{context_id}'.")
+            except Exception as db_error:
+                logger.error(f"Request ID '{request_id}': Failed to save conversation history. DB Error: {db_error}", exc_info=True)
 
-                # Per the A2A protocol, immediately return an acknowledgment.
-                logger.info(f"Request ID '{request_id}': Returning HTTP 202 Accepted.")
-                return Response(status=status.HTTP_202_ACCEPTED)
+            # --- Step 6: Return the Final, Formatted Response ---
+            logger.info(f"Request ID '{request_id}': Successfully generated and returning direct response.")
+            response_payload = {
+                "jsonrpc": "2.0", "id": validated_data['id'],
+                "result": {
+                    "id": params.get('taskId', str(uuid.uuid4())), "contextId": context_id,
+                    "status": {
+                        "state": final_state, "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "message": {"kind": "message", "role": "agent", "parts": [{"kind": "text", "text": agent_response_text}]}
+                    },
+                    "kind": "task"
+                }
+            }
+            return Response(response_payload, status=status.HTTP_200_OK)
 
         except Exception as e:
             # Top-level catch-all for validation errors or other unhandled exceptions.
