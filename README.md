@@ -7,8 +7,8 @@ This project was developed for the **HNG Internship Stage 3 Backend Task**, show
 
 ### Live Project Links
 *   **Interact with the Agent:** [**Forex Compass on Telex.im**](https://telex.im/stage3backendagents/home/colleagues/019a6b8b-4bd3-76bf-97ec-a3e459f352c2/019a6b8b-12e6-76ba-a6af-7096de959566)
-*   **Technical Blog Post:** [**From Django to Dialogue: Building a Resilient, Self-Updating AI Agent**](https://medium.com/@zichdan/from-django-to-dialogue-building-a-resilient-self-updating-ai-agent-for-telex-im-5b4eef0160c9) <!-- Replace with your Medium link if different -->
-*   **Live API Endpoint:** `https://hng-stage-3-agent-production.up.railway.app`
+*   **Technical Blog Post:** [**From Django to Dialogue: Building a Resilient, Self-Updating AI Agent**](https://medium.com/@zichdan1999/5b4eef0160c9?source=friends_link&sk=a9fec55fbc3e3761725f91bafe625a78)
+*   **Live API Endpoint:** [**Forex Compass**](https://hng-stage-3-agent-production.up.railway.app)
 
 ---
 
