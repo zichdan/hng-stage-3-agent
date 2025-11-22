@@ -27,8 +27,8 @@ This project was developed for the **HNG Internship Stage 3 Backend Task**, show
 
 The project is architected into two primary components: a **Real-Time Interaction Flow (The Brain)** and a **Background Data Pipeline (The Heartbeat)**. This decoupled design ensures that the user experience is always fast and responsive, while the slow, heavy data processing happens independently in the background.
 
-<details>
-<summary>Click to view the detailed Architecture Diagram</summary>
+<!-- <details>
+<summary>Click to view the detailed Architecture Diagram</summary> -->
 
 ```mermaid
 graph TD
