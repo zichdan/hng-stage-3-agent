@@ -1,4 +1,5 @@
 
+```markdown
 # Forex Compass: A Hybrid AI Agent for Forex Education
 
 **Forex Compass** is a sophisticated, AI-powered mentor designed to guide beginner forex traders. Built with Python and Django, this agent features a dual-architecture system that provides safe, educational answers through a self-updating knowledge base or direct LLM interaction.
@@ -8,7 +9,7 @@ This project was developed for the **HNG Internship Stage 3 Backend Task**, show
 ### Live Project Links
 *   **Interact with the Agent:** [**Forex Compass on Telex.im**](https://telex.im/stage3backendagents/home/colleagues/019a6b8b-4bd3-76bf-97ec-a3e459f352c2/019a6b8b-12e6-76ba-a6af-7096de959566)
 *   **Technical Blog Post:** [**From Django to Dialogue: Building a Resilient, Self-Updating AI Agent**](https://medium.com/@zichdan1999/5b4eef0160c9?source=friends_link&sk=a9fec55fbc3e3761725f91bafe625a78)
-*   **Live API Endpoint:** [**Forex Compass**](https://hng-stage-3-agent-production.up.railway.app)
+*   **Live API Endpoint:** [**https://hng-stage-3-agent-production.up.railway.app**](https://hng-stage-3-agent-production.up.railway.app)
 
 ---
 
@@ -26,9 +27,6 @@ This project was developed for the **HNG Internship Stage 3 Backend Task**, show
 ## System Architecture
 
 The project is architected into two primary components: a **Real-Time Interaction Flow (The Brain)** and a **Background Data Pipeline (The Heartbeat)**. This decoupled design ensures that the user experience is always fast and responsive, while the slow, heavy data processing happens independently in the background.
-
-<!-- <details>
-<summary>Click to view the detailed Architecture Diagram</summary> -->
 
 ```mermaid
 graph TD
@@ -73,8 +71,7 @@ graph TD
             Processor -- "4. Save" --> FinalVectorDB[(Knowledge Base)]
         end
     end
-
-</details>
+```
 
 ---
 
