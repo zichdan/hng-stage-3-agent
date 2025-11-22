@@ -1,7 +1,3 @@
-
-
----
-
 ```markdown
 # Forex Compass: A Hybrid AI Agent for Forex Education
 
