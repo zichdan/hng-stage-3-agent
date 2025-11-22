@@ -1,3 +1,4 @@
+
 ```markdown
 # Forex Compass: A Hybrid AI Agent for Forex Education
 
@@ -7,7 +8,7 @@ This project was developed for the **HNG Internship Stage 3 Backend Task**, show
 
 ### Live Project Links
 *   **Interact with the Agent:** [**Forex Compass on Telex.im**](https://telex.im/stage3backendagents/home/colleagues/019a6b8b-4bd3-76bf-97ec-a3e459f352c2/019a6b8b-12e6-76ba-a6af-7096de959566)
-*   **Technical Blog Post:** [**From Django to Dialogue: Building a Resilient, Self-Updating AI Agent**](https://medium.com/@your-medium-username/your-article-slug) <!-- Replace with your Medium link -->
+*   **Technical Blog Post:** [**From Django to Dialogue: Building a Resilient, Self-Updating AI Agent**](https://medium.com/@zichdan/from-django-to-dialogue-building-a-resilient-self-updating-ai-agent-for-telex-im-5b4eef0160c9) <!-- Replace with your Medium link if different -->
 *   **Live API Endpoint:** `https://hng-stage-3-agent-production.up.railway.app`
 
 ---
@@ -20,6 +21,8 @@ This project was developed for the **HNG Internship Stage 3 Backend Task**, show
 -   **Automated Knowledge Base:** A background Celery worker perpetually fetches forex news and scrapes educational articles, processes them with AI for clarity, generates vector embeddings, and populates the database. This ensures the agent's knowledge is always growing.
 -   **Decoupled & Resilient Data Pipeline:** Data ingestion is fully decoupled from AI processing. A staging table queues fetched content, and a separate, timed Celery task processes one item at a time, making the system immune to API rate-limiting errors and resilient to failures.
 -   **Production-Ready Telex.im Integration:** The agent exposes fully compliant Agent-to-Agent (A2A) protocol endpoints, designed for fast, synchronous ("blocking") interaction on the Telex.im platform.
+
+---
 
 ## System Architecture
 
@@ -73,6 +76,8 @@ graph TD
     end
 ```
 </details>
+
+---
 
 ## Technology Stack
 
@@ -206,6 +211,8 @@ Use this JSON payload in a tool like Postman to test either endpoint.
 }
 ```
 
+---
+
 ## Telex.im Integration
 
 To add this agent as a "colleague" in Telex.im, use the following workflow JSON, replacing the `url` with your deployed endpoint.
@@ -228,4 +235,5 @@ To add this agent as a "colleague" in Telex.im, use the following workflow JSON,
   ],
   "short_description": "An AI mentor for forex trading beginners."
 }
+```
 ```
