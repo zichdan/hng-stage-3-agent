@@ -229,4 +229,3 @@ To add this agent as a "colleague" in Telex.im, use the following workflow JSON,
   "short_description": "An AI mentor for forex trading beginners."
 }
 ```
-```
