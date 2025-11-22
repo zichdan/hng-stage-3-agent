@@ -1,5 +1,4 @@
 
-```markdown
 # Forex Compass: A Hybrid AI Agent for Forex Education
 
 **Forex Compass** is a sophisticated, AI-powered mentor designed to guide beginner forex traders. Built with Python and Django, this agent features a dual-architecture system that provides safe, educational answers through a self-updating knowledge base or direct LLM interaction.
@@ -74,7 +73,7 @@ graph TD
             Processor -- "4. Save" --> FinalVectorDB[(Knowledge Base)]
         end
     end
-```
+
 </details>
 
 ---
