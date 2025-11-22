@@ -1,8 +1,4 @@
-Of course. A `README.md` is the official front door to your project. It must be clear, comprehensive, and professional, guiding everyone from a curious visitor to a potential employer through the project's purpose, architecture, and usage.
 
-Based on our entire development process, here is the excellent, official, and concise `README.md` file for your Forex Compass project. It explicitly outlines the dual-agent architecture (RAG and Direct) and all other critical components.
-
-You can copy and paste the entire content below into the `README.md` file in the root of your GitHub repository.
 
 ---
 
